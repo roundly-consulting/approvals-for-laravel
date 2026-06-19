@@ -104,6 +104,15 @@ final class PendingApproval
         return app(ToggleApprovalAction::class)->execute($this->actor(), $this->approvable());
     }
 
+    /**
+     * Switch to opening a request from a named workflow preset for the approvable
+     * (treated as the request subject).
+     */
+    public function workflow(string $name): PendingWorkflowRequest
+    {
+        return new PendingWorkflowRequest($this->approvable(), $name);
+    }
+
     public function isApproved(): bool
     {
         $model = ApprovalModelResolver::class();

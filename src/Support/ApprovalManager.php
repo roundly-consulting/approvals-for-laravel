@@ -8,6 +8,7 @@ use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Approvals\Actions\ExpireApprovalsAction;
 use RoundlyConsulting\Approvals\Builders\PendingApproval;
+use RoundlyConsulting\Approvals\Builders\PendingDelegation;
 
 final class ApprovalManager
 {
@@ -25,6 +26,14 @@ final class ApprovalManager
     public function as(Model $actor): PendingApproval
     {
         return (new PendingApproval)->as($actor);
+    }
+
+    /**
+     * Begin delegating approval authority from one approver to another.
+     */
+    public function delegate(Model $delegator, Model $delegate): PendingDelegation
+    {
+        return new PendingDelegation($delegator, $delegate);
     }
 
     /**
