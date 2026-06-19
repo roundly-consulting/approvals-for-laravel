@@ -6,9 +6,13 @@ namespace RoundlyConsulting\Approvals\Traits;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
+use RoundlyConsulting\Approvals\Actions\RequestStagedApprovalAction;
+use RoundlyConsulting\Approvals\DataTransferObjects\ApprovalProgress;
+use RoundlyConsulting\Approvals\DataTransferObjects\StageDefinition;
 use RoundlyConsulting\Approvals\Enums\ApprovalRule;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Models\ApprovalRequest;
+use RoundlyConsulting\Approvals\Models\ApprovalRequestStage;
 use RoundlyConsulting\Approvals\Support\ApprovalRequestModelResolver;
 
 /**
@@ -48,6 +52,40 @@ trait RequiresApproval
         $request->save();
 
         return $request;
+    }
+
+    /**
+     * Open a sequential, multi-stage approval pipeline. Stage N only opens once stage
+     * N-1 has cleared; a rejection rejects the request unless $rejectOnStageRejection
+     * is false.
+     *
+     * @param  list<StageDefinition>  $stages
+     */
+    public function requestStagedApproval(
+        array $stages,
+        bool $rejectOnStageRejection = true,
+    ): ApprovalRequest {
+        return app(RequestStagedApprovalAction::class)->execute(
+            $this,
+            $stages,
+            $rejectOnStageRejection,
+        );
+    }
+
+    /**
+     * The stage currently open for decisions on the latest staged request, if any.
+     */
+    public function currentStage(): ?ApprovalRequestStage
+    {
+        return $this->latestApprovalRequest()?->currentStage();
+    }
+
+    /**
+     * A snapshot of how far the latest approval request has progressed.
+     */
+    public function approvalProgress(): ?ApprovalProgress
+    {
+        return $this->latestApprovalRequest()?->approvalProgress();
     }
 
     public function currentApprovalStatus(): ApprovalStatus
