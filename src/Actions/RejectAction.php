@@ -46,7 +46,7 @@ final class RejectAction
 
         $from = $approval->status;
 
-        $this->applyDecisionContext($approval, $decidedBy, $approvable, $data->weight);
+        $this->applyDecisionContext($approval, $effectiveActor, $decidedBy, $approvable, $data->weight);
         $this->attachStage($approval, $request);
 
         $approval->reject($data->reason);

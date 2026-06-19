@@ -1,0 +1,150 @@
+<?php
+
+declare(strict_types=1);
+
+use Illuminate\Support\Facades\Event;
+use RoundlyConsulting\Approvals\DataTransferObjects\StageDefinition;
+use RoundlyConsulting\Approvals\Enums\ApprovalRule;
+use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
+use RoundlyConsulting\Approvals\Events\ApprovalStageCleared;
+use RoundlyConsulting\Approvals\Events\ApprovalStageOpened;
+use RoundlyConsulting\Approvals\Tests\ReleaseTestModel;
+use RoundlyConsulting\Approvals\Tests\ReviewerTestModel;
+
+it('opens stage one immediately and gates later stages', function (): void {
+    $release = ReleaseTestModel::create();
+    $eng1 = ReviewerTestModel::create();
+    $eng2 = ReviewerTestModel::create();
+    $product = ReviewerTestModel::create();
+
+    $release->requestStagedApproval([
+        new StageDefinition([$eng1, $eng2], ApprovalRule::Unanimous, name: 'engineering'),
+        new StageDefinition([$product], ApprovalRule::Any, name: 'product'),
+    ]);
+
+    expect($product)->not->toBeNull();
+
+    expect($release->currentStage()?->position)->toBe(1);
+
+    // One engineering approval is not enough to clear a unanimous stage of two.
+    $eng1->approve($release);
+    expect($release->currentStage()?->position)->toBe(1)
+        ->and($release->isApproved())->toBeFalse();
+
+    $eng2->approve($release);
+
+    // Stage one cleared; stage two is now open.
+    expect($release->fresh()->currentStage()?->position)->toBe(2);
+});
+
+it('resolves once the final stage clears', function (): void {
+    $release = ReleaseTestModel::create();
+    $eng = ReviewerTestModel::create();
+    $product = ReviewerTestModel::create();
+
+    $release->requestStagedApproval([
+        new StageDefinition([$eng], ApprovalRule::Any),
+        new StageDefinition([$product], ApprovalRule::Any),
+    ]);
+
+    $eng->approve($release);
+    expect($release->isApproved())->toBeFalse();
+
+    $product->approve($release);
+    expect($release->currentApprovalStatus())->toBe(ApprovalStatus::Approved);
+});
+
+it('rejects the request when a stage is rejected by default', function (): void {
+    $release = ReleaseTestModel::create();
+    $eng = ReviewerTestModel::create();
+    $product = ReviewerTestModel::create();
+
+    $release->requestStagedApproval([
+        new StageDefinition([$eng], ApprovalRule::Unanimous),
+        new StageDefinition([$product], ApprovalRule::Any),
+    ]);
+
+    $eng->reject($release, 'blocked');
+
+    expect($release->currentApprovalStatus())->toBe(ApprovalStatus::Rejected);
+});
+
+it('continues past a rejected stage when configured not to reject', function (): void {
+    $release = ReleaseTestModel::create();
+    $eng = ReviewerTestModel::create();
+    $product = ReviewerTestModel::create();
+
+    $release->requestStagedApproval([
+        new StageDefinition([$eng], ApprovalRule::Unanimous),
+        new StageDefinition([$product], ApprovalRule::Any),
+    ], rejectOnStageRejection: false);
+
+    $eng->reject($release);
+
+    // The pipeline moves on to stage two rather than rejecting.
+    expect($release->currentApprovalStatus())->toBe(ApprovalStatus::Pending)
+        ->and($release->fresh()->currentStage()?->position)->toBe(2);
+
+    $product->approve($release);
+
+    expect($release->currentApprovalStatus())->toBe(ApprovalStatus::Approved);
+});
+
+it('dispatches stage opened and cleared events', function (): void {
+    Event::fake();
+
+    $release = ReleaseTestModel::create();
+    $eng = ReviewerTestModel::create();
+    $product = ReviewerTestModel::create();
+
+    $release->requestStagedApproval([
+        new StageDefinition([$eng], ApprovalRule::Any),
+        new StageDefinition([$product], ApprovalRule::Any),
+    ]);
+
+    $eng->approve($release);
+
+    Event::assertDispatched(ApprovalStageOpened::class);
+    Event::assertDispatched(ApprovalStageCleared::class);
+});
+
+it('reports staged progress', function (): void {
+    $release = ReleaseTestModel::create();
+    $eng = ReviewerTestModel::create();
+    $product = ReviewerTestModel::create();
+
+    $release->requestStagedApproval([
+        new StageDefinition([$eng], ApprovalRule::Any),
+        new StageDefinition([$product], ApprovalRule::Any),
+    ]);
+
+    $progress = $release->approvalProgress();
+
+    expect($progress)->not->toBeNull()
+        ->and($progress->totalStages)->toBe(2)
+        ->and($progress->clearedStages)->toBe(0)
+        ->and($progress->currentStage)->toBe(1);
+
+    $eng->approve($release);
+
+    $progress = $release->fresh()->approvalProgress();
+
+    expect($progress->clearedStages)->toBe(1)
+        ->and($progress->currentStage)->toBe(2)
+        ->and($progress->percentage())->toBe(50);
+});
+
+it('attaches decisions to the open stage', function (): void {
+    $release = ReleaseTestModel::create();
+    $eng = ReviewerTestModel::create();
+
+    $release->requestStagedApproval([
+        new StageDefinition([$eng], ApprovalRule::Any),
+    ]);
+
+    $stage = $release->currentStage();
+
+    $eng->approve($release);
+
+    expect($stage->fresh()->decisions()->count())->toBe(1);
+});

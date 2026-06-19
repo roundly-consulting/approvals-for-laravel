@@ -49,7 +49,7 @@ final class ApproveAction
             $approval->approval_request_type = $request->getMorphClass();
         }
 
-        $this->applyDecisionContext($approval, $decidedBy, $approvable, $data->weight);
+        $this->applyDecisionContext($approval, $effectiveActor, $decidedBy, $approvable, $data->weight);
         $this->attachStage($approval, $request);
 
         $approval->approve($data->reason, $data->expiresAt);

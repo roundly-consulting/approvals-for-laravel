@@ -109,9 +109,13 @@ trait ResolvesApproval
 
     /**
      * Stamp delegation and weight onto an approval before it is decided.
+     *
+     * The weight is resolved from the in-memory effective actor (not a reloaded
+     * relation) so a ProvidesApprovalWeight value set at runtime is respected.
      */
     protected function applyDecisionContext(
         Approval $approval,
+        Model $effectiveActor,
         ?Model $decidedBy,
         Model $approvable,
         ?int $weightOverride = null,
@@ -121,13 +125,7 @@ trait ResolvesApproval
             $approval->decided_by_type = $decidedBy->getMorphClass();
         }
 
-        $actor = $approval->actor;
-
-        if ($actor instanceof Model) {
-            $approval->weight = app(WeightResolver::class)->resolve($actor, $approvable, $weightOverride);
-        } elseif ($weightOverride !== null) {
-            $approval->weight = max(0, $weightOverride);
-        }
+        $approval->weight = app(WeightResolver::class)->resolve($effectiveActor, $approvable, $weightOverride);
     }
 
     /**

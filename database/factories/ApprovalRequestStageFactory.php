@@ -23,7 +23,7 @@ final class ApprovalRequestStageFactory extends Factory
     public function definition(): array
     {
         return [
-            'approval_request_id' => ApprovalRequestFactory::new()->state(['staged' => true]),
+            'approval_request_id' => fn (): int => ApprovalRequestFactory::new()->staged()->createOne()->getKey(),
             'position' => 1,
             'name' => null,
             'rule' => ApprovalRule::Unanimous,

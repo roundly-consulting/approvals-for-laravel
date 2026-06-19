@@ -87,4 +87,9 @@ class ApprovalRequestStage extends Model
 
         return $this;
     }
+
+    protected static function newFactory(): ApprovalRequestStageFactory
+    {
+        return ApprovalRequestStageFactory::new();
+    }
 }
