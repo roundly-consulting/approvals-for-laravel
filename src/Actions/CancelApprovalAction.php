@@ -1,0 +1,42 @@
+<?php
+
+declare(strict_types=1);
+
+namespace RoundlyConsulting\Approvals\Actions;
+
+use Illuminate\Database\Eloquent\Model;
+use RoundlyConsulting\Approvals\Actions\Concerns\ResolvesApproval;
+use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
+use RoundlyConsulting\Approvals\Events\ApprovalCancelled;
+use RoundlyConsulting\Approvals\Models\Approval;
+use RoundlyConsulting\Approvals\Support\ApprovalModelResolver;
+
+final class CancelApprovalAction
+{
+    use ResolvesApproval;
+
+    /**
+     * Withdraw the actor's active approval of the approvable, if one exists.
+     */
+    public function execute(Model $actor, Model $approvable, ?string $reason = null): ?Approval
+    {
+        $model = ApprovalModelResolver::class();
+
+        $approval = $model::query()
+            ->whereMorphedTo('actor', $actor)
+            ->whereMorphedTo('approvable', $approvable)
+            ->active()
+            ->latest('id')
+            ->first();
+
+        if (! $approval instanceof Approval || $approval->status === ApprovalStatus::Cancelled) {
+            return null;
+        }
+
+        $approval->cancel($reason);
+
+        ApprovalCancelled::dispatch($approval);
+
+        return $approval;
+    }
+}
