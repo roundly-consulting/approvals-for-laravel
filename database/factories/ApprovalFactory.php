@@ -67,6 +67,26 @@ final class ApprovalFactory extends Factory
         ]);
     }
 
+    public function weight(int $weight): static
+    {
+        return $this->state(fn (): array => ['weight' => $weight]);
+    }
+
+    public function delegated(Model $decidedBy): static
+    {
+        return $this->state(fn (): array => [
+            'decided_by_id' => $decidedBy->getKey(),
+            'decided_by_type' => $decidedBy->getMorphClass(),
+        ]);
+    }
+
+    public function forStage(Model $stage): static
+    {
+        return $this->state(fn (): array => [
+            'approval_request_stage_id' => $stage->getKey(),
+        ]);
+    }
+
     public function forActor(Model $actor): static
     {
         return $this->state(fn (): array => [

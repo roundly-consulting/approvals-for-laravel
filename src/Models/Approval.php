@@ -9,11 +9,13 @@ use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use RoundlyConsulting\Approvals\Database\Factories\ApprovalFactory;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Exceptions\InvalidStatusTransitionException;
+use RoundlyConsulting\Approvals\Support\ApprovalRequestStageModelResolver;
 
 /**
  * @property int $id
@@ -25,6 +27,10 @@ use RoundlyConsulting\Approvals\Exceptions\InvalidStatusTransitionException;
  * @property string|null $reason
  * @property int|null $approval_request_id
  * @property string|null $approval_request_type
+ * @property int|null $approval_request_stage_id
+ * @property int|null $decided_by_id
+ * @property string|null $decided_by_type
+ * @property int $weight
  * @property CarbonImmutable|null $decided_at
  * @property CarbonImmutable|null $expires_at
  * @property CarbonInterface|null $created_at
@@ -47,6 +53,7 @@ class Approval extends Model
     {
         return [
             'status' => ApprovalStatus::class,
+            'weight' => 'integer',
             'decided_at' => 'immutable_datetime',
             'expires_at' => 'immutable_datetime',
         ];
@@ -58,6 +65,32 @@ class Approval extends Model
     public function actor(): MorphTo
     {
         return $this->morphTo();
+    }
+
+    /**
+     * The model that physically made the decision (a delegate), when it differs from the actor.
+     *
+     * @return MorphTo<Model, $this>
+     */
+    public function decidedBy(): MorphTo
+    {
+        return $this->morphTo();
+    }
+
+    /**
+     * @return BelongsTo<ApprovalRequestStage, $this>
+     */
+    public function stage(): BelongsTo
+    {
+        return $this->belongsTo(ApprovalRequestStageModelResolver::class(), 'approval_request_stage_id');
+    }
+
+    /**
+     * Whether this decision was made by a delegate on behalf of the actor.
+     */
+    public function wasDelegated(): bool
+    {
+        return $this->decided_by_id !== null && $this->decided_by_type !== null;
     }
 
     /**

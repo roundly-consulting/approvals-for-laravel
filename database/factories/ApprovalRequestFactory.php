@@ -49,6 +49,19 @@ final class ApprovalRequestFactory extends Factory
         return $this->state(fn (): array => ['rule' => ApprovalRule::Any]);
     }
 
+    public function weighted(int $threshold): static
+    {
+        return $this->state(fn (): array => [
+            'rule' => ApprovalRule::Weighted,
+            'quorum' => $threshold,
+        ]);
+    }
+
+    public function staged(): static
+    {
+        return $this->state(fn (): array => ['staged' => true]);
+    }
+
     public function forSubject(Model $subject): static
     {
         return $this->state(fn (): array => [

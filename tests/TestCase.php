@@ -38,7 +38,16 @@ abstract class TestCase extends Orchestra
     {
         Schema::dropAllTables();
 
-        foreach (['create_approvals_table', 'create_approval_requests_table'] as $name) {
+        $migrations = [
+            'create_approvals_table',
+            'create_approval_requests_table',
+            'add_v11_columns_to_approvals_table',
+            'add_staging_to_approval_requests_table',
+            'create_approval_request_stages_table',
+            'create_approval_delegations_table',
+        ];
+
+        foreach ($migrations as $name) {
             $migration = require __DIR__."/../database/migrations/{$name}.php";
 
             if ($migration instanceof Migration) {
