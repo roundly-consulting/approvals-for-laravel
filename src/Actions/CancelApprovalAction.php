@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Approvals\Actions\Concerns\ResolvesApproval;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Events\ApprovalCancelled;
+use RoundlyConsulting\Approvals\Events\ApprovalStatusChanged;
 use RoundlyConsulting\Approvals\Models\Approval;
 use RoundlyConsulting\Approvals\Support\ApprovalModelResolver;
 
@@ -33,9 +34,12 @@ final class CancelApprovalAction
             return null;
         }
 
+        $from = $approval->status;
+
         $approval->cancel($reason);
 
         ApprovalCancelled::dispatch($approval);
+        ApprovalStatusChanged::dispatch($approval, $from, ApprovalStatus::Cancelled, $actor);
 
         return $approval;
     }
