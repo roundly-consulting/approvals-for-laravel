@@ -9,10 +9,14 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
 use RoundlyConsulting\Approvals\Actions\ApproveAction;
 use RoundlyConsulting\Approvals\Actions\CancelApprovalAction;
 use RoundlyConsulting\Approvals\Actions\RejectAction;
+use RoundlyConsulting\Approvals\Actions\RevokeApprovalDelegationAction;
 use RoundlyConsulting\Approvals\Actions\ToggleApprovalAction;
+use RoundlyConsulting\Approvals\Builders\PendingDelegation;
 use RoundlyConsulting\Approvals\DataTransferObjects\DecisionData;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Models\Approval;
+use RoundlyConsulting\Approvals\Models\ApprovalDelegation;
+use RoundlyConsulting\Approvals\Support\ApprovalDelegationModelResolver;
 use RoundlyConsulting\Approvals\Support\ApprovalModelResolver;
 
 /**
@@ -83,5 +87,34 @@ trait GivesApprovals
     public function toggleApproval(Model $model): bool
     {
         return app(ToggleApprovalAction::class)->execute($this, $model);
+    }
+
+    /**
+     * Delegations this approver has handed out (as the delegator).
+     *
+     * @return MorphMany<ApprovalDelegation, $this>
+     */
+    public function approvalDelegations(): MorphMany
+    {
+        return $this->morphMany(ApprovalDelegationModelResolver::class(), 'delegator');
+    }
+
+    /**
+     * Hand this approver's authority to another model. Returns a fluent builder so a
+     * time window can be attached: delegateApprovalsTo($x)->until($when).
+     */
+    public function delegateApprovalsTo(Model $delegate): PendingDelegation
+    {
+        return new PendingDelegation($this, $delegate);
+    }
+
+    /**
+     * Revoke this approver's active delegations, optionally limited to one delegate.
+     *
+     * @return int the number of delegations revoked
+     */
+    public function revokeApprovalDelegation(?Model $delegate = null): int
+    {
+        return app(RevokeApprovalDelegationAction::class)->execute($this, $delegate);
     }
 }
