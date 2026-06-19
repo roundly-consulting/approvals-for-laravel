@@ -1,11 +1,15 @@
 # Approvals for Laravel
 
-Record polymorphic approvals between Eloquent models for Laravel.
+Model approvals, rejections, and multi-approver sign-off between Eloquent models.
 
-Any model can act as an **actor** that gives approvals (a user, a team, a service account),
-and any model can be **approvable** (a deployment, a document, a comment). Approvals are
-stored polymorphically, are toggleable, and emit an event each time one is created or
-removed so you can hook in your own workflow.
+Any model can act as an **actor** that decides on things (a user, a team, a service account),
+and any model can be **approvable** (a deployment, a document, a comment). Decisions carry an
+explicit status (`pending`, `approved`, `rejected`, `cancelled`, `expired`), an optional reason,
+and an optional expiry. A subject can also open an **approval request** that needs sign-off from
+several approvers under a rule (unanimous, quorum, or any-one), resolving automatically as
+decisions come in. Every transition fires an event you can hook into.
+
+The original lightweight "toggle" workflow still works as a one-liner.
 
 ## Requirements
 
@@ -18,15 +22,15 @@ removed so you can hook in your own workflow.
 composer require roundly-consulting/approvals-for-laravel
 ```
 
-Publish and run the migration:
+Publish and run the migrations:
 
 ```bash
 php artisan vendor:publish --tag="approvals-migrations"
 php artisan migrate
 ```
 
-The migration is also auto-discovered, so the package works without publishing it. Publish
-it only when you want to customise the schema.
+The migrations are also auto-discovered, so the package works without publishing them. Publish
+them only when you want to customise the schema.
 
 Optionally publish the config file:
 
@@ -36,36 +40,44 @@ php artisan vendor:publish --tag="approvals-config"
 
 ## Configuration
 
-The published `config/approvals.php` contains a single key:
+The published `config/approvals.php`:
 
 ```php
-<?php
-
-declare(strict_types=1);
-
-use RoundlyConsulting\Approvals\Models\Approval;
-
 return [
-    // The Eloquent model used to store approvals. Override this to extend the
-    // default model with your own behaviour. The replacement MUST extend
-    // RoundlyConsulting\Approvals\Models\Approval.
-    'model' => Approval::class,
+    'model' => RoundlyConsulting\Approvals\Models\Approval::class,
+    'request_model' => RoundlyConsulting\Approvals\Models\ApprovalRequest::class,
+    'default_status' => RoundlyConsulting\Approvals\Enums\ApprovalStatus::Approved->value,
+    'authorization' => [
+        'enabled' => env('APPROVALS_AUTHORIZATION', false),
+        'ability' => 'decide-approval',
+    ],
+    'expiry' => [
+        'default' => null,
+    ],
 ];
 ```
 
 | Key | Type | Default | Purpose |
 |---|---|---|---|
-| `model` | `class-string<Approval>` | `RoundlyConsulting\Approvals\Models\Approval::class` | The model used to persist approvals. Must extend the package's `Approval` model. |
+| `model` | `class-string<Approval>` | `Approval::class` | Model used to persist decisions. Must extend the package's `Approval`. |
+| `request_model` | `class-string<ApprovalRequest>` | `ApprovalRequest::class` | Model used to persist multi-approver requests. Must extend the package's `ApprovalRequest`. |
+| `default_status` | `string` | `'approved'` | Status applied to a toggled approval. Keeps the legacy toggle = approved behaviour. |
+| `authorization.enabled` | `bool` | `false` (env `APPROVALS_AUTHORIZATION`) | When true, every decision is gated through a Gate ability. |
+| `authorization.ability` | `string` | `'decide-approval'` | The Gate ability checked against the approvable. |
+| `expiry.default` | `int\|null` | `null` | Default approval lifetime in seconds. `null` means never. |
+
+The package runs with zero host configuration.
 
 ## Usage
 
-Add the `GivesApprovals` trait to the model that hands out approvals, and the `HasApprovals`
-trait to the model that receives them:
+Add `GivesApprovals` to the model that decides, and `HasApprovals` to the model that is decided
+on. Add `RequiresApproval` to a subject that needs multi-approver sign-off.
 
 ```php
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Approvals\Traits\GivesApprovals;
 use RoundlyConsulting\Approvals\Traits\HasApprovals;
+use RoundlyConsulting\Approvals\Traits\RequiresApproval;
 
 class User extends Model
 {
@@ -76,70 +88,145 @@ class Deployment extends Model
 {
     use HasApprovals;
 }
+
+class Release extends Model
+{
+    use HasApprovals;
+    use RequiresApproval;
+}
 ```
 
-### Toggling an approval
-
-`toggleApproval()` creates the approval if it doesn't exist and removes it (soft delete) if
-it does. It returns `true` when the approval was created and `false` when it was removed:
+### The facade and fluent builder
 
 ```php
-$user = auth()->user();
-$deployment = Deployment::find(5);
+use RoundlyConsulting\Approvals\Facades\Approvals;
 
-$user->toggleApproval($deployment); // true  — approval created
-$user->toggleApproval($deployment); // false — approval removed
-$user->toggleApproval($deployment); // true  — approval created again
+Approvals::for($deployment)->as($user)->because('Looks good to me')->approve();
+Approvals::for($deployment)->as($user)->because('Please add tests')->reject();
+Approvals::for($deployment)->as($user)->request();          // record a pending decision
+Approvals::for($deployment)->as($user)->cancel();           // withdraw an active decision
+Approvals::for($deployment)->as($user)->expiresIn(86400)->approve();
+Approvals::for($deployment)->as($user)->isApproved();       // bool
 ```
 
-### Querying approvals
+The `Approvals` facade is registered automatically; a global `approvals()` helper returns the
+same manager.
+
+### Trait sugar
 
 ```php
-// All approvals an actor has given (Eloquent collection).
-$user->approvals;
+$user->approve($deployment, 'LGTM');     // Approval
+$user->reject($deployment, 'needs work'); // Approval
+$user->cancelApproval($deployment);       // ?Approval
+$user->toggleApproval($deployment);       // bool (legacy on/off)
 
-// All approvals an entity has received.
-$deployment->approvals;
+$user->hasApproved($deployment);          // bool — holds an approved decision
+$user->hasRejected($deployment);          // bool
+$user->approvalFor($deployment);          // ?Approval (latest)
 
-// Has this actor approved the entity?
-$user->hasApproved($deployment); // bool
-
-// Has this entity been approved by the actor?
-$deployment->hasBeenApprovedBy($user); // bool
+$deployment->hasBeenApprovedBy($user);    // bool
+$deployment->hasBeenRejectedBy($user);    // bool
+$deployment->isApprovedBy($user);         // bool
+$deployment->approvalCount();             // int
+$deployment->pendingApprovals();          // Collection<Approval>
 ```
 
-### Reacting to approvals
-
-Every call to `toggleApproval()` dispatches `RoundlyConsulting\Approvals\Events\ApprovalToggled`.
-Listen for it to run your own logic when an approval is given or revoked:
+### Multi-approver requests & quorum
 
 ```php
-use RoundlyConsulting\Approvals\Events\ApprovalToggled;
+use RoundlyConsulting\Approvals\Enums\ApprovalRule;
+
+// Unanimous: every approver must approve; one rejection rejects the request.
+$release->requestApproval([$lead, $qa, $pm], ApprovalRule::Unanimous);
+
+// Quorum: 2 of 3 approvals resolve it; it rejects once 2 approvals are no longer reachable.
+$release->requestApproval([$lead, $qa, $pm], ApprovalRule::Quorum, quorum: 2);
+
+// Any: the first approval resolves it.
+$release->requestApproval([$lead, $qa, $pm], ApprovalRule::Any);
+
+$lead->approve($release);   // decisions flow into the open request automatically
+$qa->approve($release);
+
+$release->isApproved();              // bool
+$release->isPendingApproval();       // bool
+$release->currentApprovalStatus();   // ApprovalStatus
+```
+
+### Authorization
+
+Set `approvals.authorization.enabled` to `true` (or `APPROVALS_AUTHORIZATION=true`) to gate every
+decision through a Gate ability. The package never defines the gate — your app does:
+
+```php
+Gate::define('decide-approval', fn ($user, $approvable) => $user->can('review', $approvable));
+```
+
+A denied gate throws `RoundlyConsulting\Approvals\Exceptions\UnauthorizedApprovalException`.
+
+### Expiry
+
+```php
+Approvals::for($budget)->as($cfo)->expiresIn(86400)->approve();
+
+// Lapse due pending approvals (schedule this):
+Approvals::expire();
+```
+
+```bash
+php artisan approvals:expire
+```
+
+### Blade directives
+
+```blade
+@approved($deployment, $user) Approved by you @endapproved
+@rejected($deployment, $user) You rejected this @endrejected
+@pendingApproval($deployment) Awaiting a decision @endpendingApproval
+```
+
+### Events
+
+Each transition dispatches an event carrying the relevant model:
+
+| Event | Fired when |
+|---|---|
+| `ApprovalRequested` | a pending decision is recorded |
+| `ApprovalApproved` | a decision is approved |
+| `ApprovalRejected` | a decision is rejected |
+| `ApprovalCancelled` | a decision is withdrawn |
+| `ApprovalExpired` | a pending decision lapses |
+| `ApprovalRequestResolved` | a request reaches approved/rejected |
+| `ApprovalToggled` | the legacy `toggleApproval()` runs |
+
+```php
+use RoundlyConsulting\Approvals\Events\ApprovalApproved;
 
 class NotifyOnApproval
 {
-    public function handle(ApprovalToggled $event): void
+    public function handle(ApprovalApproved $event): void
     {
-        // $event->actor           — the model that toggled the approval
-        // $event->entity          — the model being approved
-        // $event->hasBeenApproved — true if just approved, false if removed
+        // $event->approval — the Approval model
     }
 }
 ```
 
-### The Approval model
-
-Approvals are stored in the `approvals` table via `RoundlyConsulting\Approvals\Models\Approval`.
-The model uses soft deletes and ships a factory:
+### The legacy toggle
 
 ```php
-use RoundlyConsulting\Approvals\Models\Approval;
-
-$approval = Approval::factory()->create();
-
-$approval->actor;       // the morphTo actor
-$approval->approvable;  // the morphTo approvable
+$user->toggleApproval($deployment); // true  — approval created (status: approved)
+$user->toggleApproval($deployment); // false — approval removed (soft delete)
 ```
+
+`toggleApproval()` keeps its exact original behaviour and still fires `ApprovalToggled`.
+
+## Upgrade notes
+
+- `hasApproved()` / `hasBeenApprovedBy()` now mean "holds an **approved** decision" rather than
+  "a row exists". Because the legacy toggle path only ever creates approved rows, this is
+  observably identical for code that only used toggling.
+- `ApprovalModelResolver` now throws `InvalidApprovalModelException` (a `RuntimeException`)
+  instead of `InvalidArgumentException`.
 
 ## Testing
 
