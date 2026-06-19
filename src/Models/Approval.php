@@ -4,12 +4,16 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Approvals\Models;
 
+use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use RoundlyConsulting\Approvals\Database\Factories\ApprovalFactory;
+use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
+use RoundlyConsulting\Approvals\Exceptions\InvalidStatusTransitionException;
 
 /**
  * @property int $id
@@ -17,6 +21,12 @@ use RoundlyConsulting\Approvals\Database\Factories\ApprovalFactory;
  * @property string $actor_type
  * @property int $approvable_id
  * @property string $approvable_type
+ * @property ApprovalStatus $status
+ * @property string|null $reason
+ * @property int|null $approval_request_id
+ * @property string|null $approval_request_type
+ * @property CarbonImmutable|null $decided_at
+ * @property CarbonImmutable|null $expires_at
  * @property CarbonInterface|null $created_at
  * @property CarbonInterface|null $updated_at
  * @property CarbonInterface|null $deleted_at
@@ -29,6 +39,18 @@ class Approval extends Model
     use SoftDeletes;
 
     protected $guarded = [];
+
+    /**
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return [
+            'status' => ApprovalStatus::class,
+            'decided_at' => 'immutable_datetime',
+            'expires_at' => 'immutable_datetime',
+        ];
+    }
 
     /**
      * @return MorphTo<Model, $this>
@@ -44,6 +66,123 @@ class Approval extends Model
     public function approvable(): MorphTo
     {
         return $this->morphTo();
+    }
+
+    /**
+     * @return MorphTo<Model, $this>
+     */
+    public function approvalRequest(): MorphTo
+    {
+        return $this->morphTo();
+    }
+
+    /**
+     * @param  Builder<Approval>  $query
+     */
+    public function scopePending(Builder $query): void
+    {
+        $query->where('status', ApprovalStatus::Pending);
+    }
+
+    /**
+     * @param  Builder<Approval>  $query
+     */
+    public function scopeApproved(Builder $query): void
+    {
+        $query->where('status', ApprovalStatus::Approved);
+    }
+
+    /**
+     * @param  Builder<Approval>  $query
+     */
+    public function scopeRejected(Builder $query): void
+    {
+        $query->where('status', ApprovalStatus::Rejected);
+    }
+
+    /**
+     * @param  Builder<Approval>  $query
+     */
+    public function scopeExpired(Builder $query): void
+    {
+        $query->where('status', ApprovalStatus::Expired);
+    }
+
+    /**
+     * Approvals that are still in play (pending or approved, not withdrawn/rejected/expired).
+     *
+     * @param  Builder<Approval>  $query
+     */
+    public function scopeActive(Builder $query): void
+    {
+        $query->whereIn('status', [ApprovalStatus::Pending, ApprovalStatus::Approved]);
+    }
+
+    /**
+     * @param  Builder<Approval>  $query
+     */
+    public function scopeExpiringBefore(Builder $query, CarbonInterface $moment): void
+    {
+        $query->whereNotNull('expires_at')->where('expires_at', '<=', $moment);
+    }
+
+    public function approve(?string $reason = null, ?CarbonInterface $expiresAt = null): static
+    {
+        $this->transitionTo(ApprovalStatus::Approved);
+
+        $this->reason = $reason ?? $this->reason;
+        $this->decided_at = CarbonImmutable::now();
+
+        if ($expiresAt !== null) {
+            $this->expires_at = CarbonImmutable::instance($expiresAt->toDateTimeImmutable());
+        }
+
+        $this->save();
+
+        return $this;
+    }
+
+    public function reject(?string $reason = null): static
+    {
+        $this->transitionTo(ApprovalStatus::Rejected);
+
+        $this->reason = $reason ?? $this->reason;
+        $this->decided_at = CarbonImmutable::now();
+        $this->save();
+
+        return $this;
+    }
+
+    public function cancel(?string $reason = null): static
+    {
+        $this->transitionTo(ApprovalStatus::Cancelled);
+
+        $this->reason = $reason ?? $this->reason;
+        $this->decided_at = CarbonImmutable::now();
+        $this->save();
+
+        return $this;
+    }
+
+    public function markExpired(): static
+    {
+        $this->transitionTo(ApprovalStatus::Expired);
+
+        $this->decided_at = CarbonImmutable::now();
+        $this->save();
+
+        return $this;
+    }
+
+    private function transitionTo(ApprovalStatus $to): void
+    {
+        $from = $this->status;
+
+        if (! $from->canTransitionTo($to)) {
+            throw InvalidStatusTransitionException::between($from, $to);
+        }
+
+        $this->status = $to;
     }
 
     protected static function newFactory(): ApprovalFactory

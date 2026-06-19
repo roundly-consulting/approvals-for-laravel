@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Approvals\Support;
 
-use InvalidArgumentException;
+use RoundlyConsulting\Approvals\Exceptions\InvalidApprovalModelException;
 use RoundlyConsulting\Approvals\Models\Approval;
 
 final class ApprovalModelResolver
@@ -18,9 +18,10 @@ final class ApprovalModelResolver
     {
         $model = config('approvals.model', Approval::class);
 
-        if (! is_string($model) || ! is_subclass_of($model, Approval::class) && $model !== Approval::class) {
-            throw new InvalidArgumentException(
-                'The configured approvals.model must be a class extending '.Approval::class.'.'
+        if (! is_string($model) || ($model !== Approval::class && ! is_subclass_of($model, Approval::class))) {
+            throw InvalidApprovalModelException::forClass(
+                is_string($model) ? $model : get_debug_type($model),
+                Approval::class,
             );
         }
 
