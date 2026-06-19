@@ -8,5 +8,12 @@ parameters:
         - tests/DeploymentTestModel.php
         - tests/ReleaseTestModel.php
         - tests/ReviewerTestModel.php
+        - tests/WeightedReviewerTestModel.php
+    excludePaths:
+        # The Testing helpers bind Pest's expect()->extend() closures ($this is the
+        # expectation, resolved at runtime) and a consumer-facing opt-in trait. Neither
+        # is statically analysable in isolation; both are exercised by the test suite.
+        - src/Testing/ApprovalExpectations.php
+        - src/Testing/InteractsWithApprovals.php
     configDirectories:
         - config
