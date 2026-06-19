@@ -6,8 +6,11 @@ Any model can act as an **actor** that decides on things (a user, a team, a serv
 and any model can be **approvable** (a deployment, a document, a comment). Decisions carry an
 explicit status (`pending`, `approved`, `rejected`, `cancelled`, `expired`), an optional reason,
 and an optional expiry. A subject can also open an **approval request** that needs sign-off from
-several approvers under a rule (unanimous, quorum, or any-one), resolving automatically as
-decisions come in. Every transition fires an event you can hook into.
+several approvers under a rule (unanimous, quorum, any-one, or **weighted**), resolving
+automatically as decisions come in. Requests can run as **sequential, staged pipelines**,
+approvers can **delegate** their authority for a time window, and common setups can be
+captured as named **workflow presets**. Every transition fires an event you can hook into,
+including a single umbrella `ApprovalStatusChanged` event.
 
 The original lightweight "toggle" workflow still works as a one-liner.
 
@@ -46,6 +49,8 @@ The published `config/approvals.php`:
 return [
     'model' => RoundlyConsulting\Approvals\Models\Approval::class,
     'request_model' => RoundlyConsulting\Approvals\Models\ApprovalRequest::class,
+    'stage_model' => RoundlyConsulting\Approvals\Models\ApprovalRequestStage::class,
+    'delegation_model' => RoundlyConsulting\Approvals\Models\ApprovalDelegation::class,
     'default_status' => RoundlyConsulting\Approvals\Enums\ApprovalStatus::Approved->value,
     'authorization' => [
         'enabled' => env('APPROVALS_AUTHORIZATION', false),
@@ -54,6 +59,9 @@ return [
     'expiry' => [
         'default' => null,
     ],
+    'workflows' => [
+        // see "Workflow presets" below
+    ],
 ];
 ```
 
@@ -61,10 +69,13 @@ return [
 |---|---|---|---|
 | `model` | `class-string<Approval>` | `Approval::class` | Model used to persist decisions. Must extend the package's `Approval`. |
 | `request_model` | `class-string<ApprovalRequest>` | `ApprovalRequest::class` | Model used to persist multi-approver requests. Must extend the package's `ApprovalRequest`. |
+| `stage_model` | `class-string<ApprovalRequestStage>` | `ApprovalRequestStage::class` | Model used to persist a staged request's stages. Must extend the package's `ApprovalRequestStage`. |
+| `delegation_model` | `class-string<ApprovalDelegation>` | `ApprovalDelegation::class` | Model used to persist delegations. Must extend the package's `ApprovalDelegation`. |
 | `default_status` | `string` | `'approved'` | Status applied to a toggled approval. Keeps the legacy toggle = approved behaviour. |
 | `authorization.enabled` | `bool` | `false` (env `APPROVALS_AUTHORIZATION`) | When true, every decision is gated through a Gate ability. |
 | `authorization.ability` | `string` | `'decide-approval'` | The Gate ability checked against the approvable. |
 | `expiry.default` | `int\|null` | `null` | Default approval lifetime in seconds. `null` means never. |
+| `workflows` | `array` | `[]` | Named workflow presets (see below). |
 
 The package runs with zero host configuration.
 
@@ -153,6 +164,114 @@ $release->isPendingApproval();       // bool
 $release->currentApprovalStatus();   // ApprovalStatus
 ```
 
+### Weighted thresholds
+
+`ApprovalRule::Weighted` (and `Quorum`) resolve on the **summed weight** of approvals rather
+than a headcount. The `quorum` value is the weight threshold. Plain quorum keeps working
+unchanged because every decision defaults to weight `1`.
+
+Give an actor a weight by implementing `ProvidesApprovalWeight`:
+
+```php
+use RoundlyConsulting\Approvals\Interfaces\ProvidesApprovalWeight;
+
+class User extends Model implements ProvidesApprovalWeight
+{
+    use GivesApprovals;
+
+    public function approvalWeight(?Model $approvable = null): int
+    {
+        return $this->is_director ? 3 : 1;
+    }
+}
+
+$release->requestApproval([$director, $analyst], ApprovalRule::Weighted, quorum: 3);
+$director->approve($release);   // weight 3 alone meets the threshold -> approved
+```
+
+You can also override the weight per decision via `DecisionData::approved(weight: 2)`.
+
+### Sequential / staged pipelines
+
+A request can run as an ordered set of stages. Stage *N* only opens once stage *N-1* has
+cleared; by default a rejection in any stage rejects the whole request.
+
+```php
+use RoundlyConsulting\Approvals\DataTransferObjects\StageDefinition;
+use RoundlyConsulting\Approvals\Enums\ApprovalRule;
+
+$release->requestStagedApproval([
+    new StageDefinition([$eng1, $eng2], ApprovalRule::Unanimous, name: 'engineering'),
+    new StageDefinition([$product],     ApprovalRule::Any,       name: 'product'),
+]);
+
+$release->currentStage();       // ?ApprovalRequestStage — the open stage
+$release->approvalProgress();   // ?ApprovalProgress — counts, current/total stages, percentage()
+```
+
+Pass `rejectOnStageRejection: false` to let the pipeline continue past a rejected stage.
+Staged requests dispatch `ApprovalStageOpened` and `ApprovalStageCleared`.
+
+### Delegation (proxy authority)
+
+An approver can hand their authority to another model for a window. While the delegation is
+active, the delegate's decisions count **as the delegator** — the approval records both the
+delegator (as `actor`) and the delegate (as `decided_by`).
+
+```php
+use Carbon\CarbonImmutable;
+
+$manager->delegateApprovalsTo($assistant)->until(CarbonImmutable::now()->addWeek());
+// or ->from($start), ->for($seconds), or bare for an open-ended delegation
+
+$assistant->approve($release);          // counts as $manager
+$approval->wasDelegated();              // true
+$approval->actor;                       // $manager
+$approval->decidedBy;                   // $assistant
+
+$manager->revokeApprovalDelegation();           // revoke all
+$manager->revokeApprovalDelegation($assistant); // revoke one
+$manager->approvalDelegations;                  // MorphMany<ApprovalDelegation>
+```
+
+Self-delegation and a window that ends before it starts throw
+`RoundlyConsulting\Approvals\Exceptions\InvalidDelegationException`. Delegation also fires
+`ApprovalDelegated` and `ApprovalDelegationRevoked`.
+
+### Workflow presets
+
+Capture a reusable rule/quorum/stage/expiry setup in `config('approvals.workflows')` so call
+sites stay short:
+
+```php
+'workflows' => [
+    'payout' => [
+        'rule' => ApprovalRule::Quorum->value,
+        'quorum' => 2,
+        'required_approvers' => 3,
+        'expiry' => 86400,
+    ],
+    'release' => [
+        'reject_on_stage_rejection' => true,
+        'stages' => [
+            ['rule' => ApprovalRule::Unanimous->value, 'required_approvers' => 2, 'name' => 'engineering'],
+            ['rule' => ApprovalRule::Any->value,       'required_approvers' => 1, 'name' => 'product'],
+        ],
+    ],
+],
+```
+
+```php
+// Flat preset: a single approver list.
+Approvals::for($budget)->workflow('payout')->request([$a, $b, $c]);
+
+// Staged preset: one approver group per stage, in order.
+Approvals::for($release)->workflow('release')->request([[$eng1, $eng2], [$product]]);
+```
+
+An unknown or malformed preset throws
+`RoundlyConsulting\Approvals\Exceptions\UnknownWorkflowException`.
+
 ### Authorization
 
 Set `approvals.authorization.enabled` to `true` (or `APPROVALS_AUTHORIZATION=true`) to gate every
@@ -198,6 +317,26 @@ Each transition dispatches an event carrying the relevant model:
 | `ApprovalExpired` | a pending decision lapses |
 | `ApprovalRequestResolved` | a request reaches approved/rejected |
 | `ApprovalToggled` | the legacy `toggleApproval()` runs |
+| `ApprovalStageOpened` | a staged request opens a stage |
+| `ApprovalStageCleared` | a staged request clears a stage |
+| `ApprovalDelegated` | an approver delegates authority |
+| `ApprovalDelegationRevoked` | a delegation is revoked |
+| `ApprovalStatusChanged` | **umbrella** — fired for every status change alongside the granular events |
+
+Subscribe to `ApprovalStatusChanged` once to observe all transitions. It carries the
+`subject` (approval or request), `from`/`to` `ApprovalStatus`, and the `actor`:
+
+```php
+use RoundlyConsulting\Approvals\Events\ApprovalStatusChanged;
+
+class AuditApprovalChanges
+{
+    public function handle(ApprovalStatusChanged $event): void
+    {
+        // $event->from, $event->to, $event->subject, $event->actor
+    }
+}
+```
 
 ```php
 use RoundlyConsulting\Approvals\Events\ApprovalApproved;
@@ -227,6 +366,52 @@ $user->toggleApproval($deployment); // false — approval removed (soft delete)
   observably identical for code that only used toggling.
 - `ApprovalModelResolver` now throws `InvalidApprovalModelException` (a `RuntimeException`)
   instead of `InvalidArgumentException`.
+
+### v1.1
+
+All v1.1 changes are additive and backward-compatible:
+
+- New tables (`approval_delegations`, `approval_request_stages`) and new columns on
+  `approvals` (`decided_by`, `weight`, `approval_request_stage_id`) and `approval_requests`
+  (`staged`, `reject_on_stage_rejection`, `workflow`). Publish and run the migrations.
+- New `ApprovalRule::Weighted` case. `ApprovalRule::Quorum` now sums decision **weight**; with
+  the default weight of `1` this is identical to the previous headcount behaviour.
+- `ApprovalStatusChanged` is dispatched **in addition to** the existing granular events — none
+  were removed.
+
+### Test helpers (for host apps)
+
+Opt-in ergonomics for testing your own app. They live under
+`RoundlyConsulting\Approvals\Testing` and pull in **no runtime dependency** — Pest is only
+touched when you call the registrar.
+
+Pest custom expectations — register once in your `tests/Pest.php`:
+
+```php
+use RoundlyConsulting\Approvals\Testing\ApprovalExpectations;
+
+ApprovalExpectations::register();
+
+// then in tests:
+expect($release)->toBeApproved();
+expect($release)->toBePendingApproval();
+expect($release)->toBeRejected();
+```
+
+A test-case trait for acting as an approver:
+
+```php
+use RoundlyConsulting\Approvals\Testing\InteractsWithApprovals;
+
+uses(InteractsWithApprovals::class);
+
+$this->actingAsApprover($reviewer)->approveAs($release);
+$this->rejectAs($release, 'needs work', $otherReviewer);
+```
+
+Factories ship states for the new models too: `ApprovalFactory::weight()/delegated()/forStage()`,
+`ApprovalRequestFactory::weighted()/staged()`, plus `ApprovalDelegationFactory` and
+`ApprovalRequestStageFactory`.
 
 ## Testing
 
