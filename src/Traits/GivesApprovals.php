@@ -6,7 +6,12 @@ namespace RoundlyConsulting\Approvals\Traits;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
-use RoundlyConsulting\Approvals\Events\ApprovalToggled;
+use RoundlyConsulting\Approvals\Actions\ApproveAction;
+use RoundlyConsulting\Approvals\Actions\CancelApprovalAction;
+use RoundlyConsulting\Approvals\Actions\RejectAction;
+use RoundlyConsulting\Approvals\Actions\ToggleApprovalAction;
+use RoundlyConsulting\Approvals\DataTransferObjects\DecisionData;
+use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Models\Approval;
 use RoundlyConsulting\Approvals\Support\ApprovalModelResolver;
 
@@ -25,11 +30,49 @@ trait GivesApprovals
         return $this->morphMany(ApprovalModelResolver::class(), 'actor');
     }
 
+    /**
+     * Whether this actor currently holds an approved decision for the model.
+     */
     public function hasApproved(Model $model): bool
     {
         return $this->approvals()
             ->whereMorphedTo('approvable', $model)
+            ->where('status', ApprovalStatus::Approved)
             ->exists();
+    }
+
+    /**
+     * Whether this actor currently holds a rejection for the model.
+     */
+    public function hasRejected(Model $model): bool
+    {
+        return $this->approvals()
+            ->whereMorphedTo('approvable', $model)
+            ->where('status', ApprovalStatus::Rejected)
+            ->exists();
+    }
+
+    public function approvalFor(Model $model): ?Approval
+    {
+        return $this->approvals()
+            ->whereMorphedTo('approvable', $model)
+            ->latest('id')
+            ->first();
+    }
+
+    public function approve(Model $model, ?string $reason = null): Approval
+    {
+        return app(ApproveAction::class)->execute($this, $model, DecisionData::approved($reason));
+    }
+
+    public function reject(Model $model, ?string $reason = null): Approval
+    {
+        return app(RejectAction::class)->execute($this, $model, DecisionData::rejected($reason));
+    }
+
+    public function cancelApproval(Model $model, ?string $reason = null): ?Approval
+    {
+        return app(CancelApprovalAction::class)->execute($this, $model, $reason);
     }
 
     /**
@@ -39,19 +82,6 @@ trait GivesApprovals
      */
     public function toggleApproval(Model $model): bool
     {
-        $approval = $this->approvals()
-            ->whereMorphedTo('approvable', $model)
-            ->firstOrCreate([
-                'approvable_id' => $model->getKey(),
-                'approvable_type' => $model->getMorphClass(),
-            ]);
-
-        if (! $approval->wasRecentlyCreated) {
-            $approval->delete();
-        }
-
-        ApprovalToggled::dispatch($this, $model, $approval->wasRecentlyCreated);
-
-        return $approval->wasRecentlyCreated;
+        return app(ToggleApprovalAction::class)->execute($this, $model);
     }
 }

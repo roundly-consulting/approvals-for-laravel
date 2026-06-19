@@ -17,5 +17,15 @@ interface GivesApprovalsInterface
 
     public function hasApproved(Model $model): bool;
 
+    public function hasRejected(Model $model): bool;
+
+    public function approvalFor(Model $model): ?Approval;
+
+    public function approve(Model $model, ?string $reason = null): Approval;
+
+    public function reject(Model $model, ?string $reason = null): Approval;
+
+    public function cancelApproval(Model $model, ?string $reason = null): ?Approval;
+
     public function toggleApproval(Model $model): bool;
 }
