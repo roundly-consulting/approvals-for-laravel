@@ -14,11 +14,12 @@ final readonly class DecisionData
         public ?string $reason = null,
         public ?CarbonInterface $expiresAt = null,
         public ?CarbonInterface $decidedAt = null,
+        public ?int $weight = null,
     ) {}
 
-    public static function approved(?string $reason = null, ?CarbonInterface $expiresAt = null): self
+    public static function approved(?string $reason = null, ?CarbonInterface $expiresAt = null, ?int $weight = null): self
     {
-        return new self(ApprovalStatus::Approved, $reason, $expiresAt);
+        return new self(ApprovalStatus::Approved, $reason, $expiresAt, weight: $weight);
     }
 
     public static function rejected(?string $reason = null): self
