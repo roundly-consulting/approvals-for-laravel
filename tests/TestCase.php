@@ -38,10 +38,12 @@ abstract class TestCase extends Orchestra
     {
         Schema::dropAllTables();
 
-        $migration = require __DIR__.'/../database/migrations/create_approvals_table.php';
+        foreach (['create_approvals_table', 'create_approval_requests_table'] as $name) {
+            $migration = require __DIR__."/../database/migrations/{$name}.php";
 
-        if ($migration instanceof Migration) {
-            $migration->up();
+            if ($migration instanceof Migration) {
+                $migration->up();
+            }
         }
 
         Schema::create('actors', function (Blueprint $table): void {
@@ -49,6 +51,10 @@ abstract class TestCase extends Orchestra
         });
 
         Schema::create('deployments', function (Blueprint $table): void {
+            $table->increments('id');
+        });
+
+        Schema::create('releases', function (Blueprint $table): void {
             $table->increments('id');
         });
     }

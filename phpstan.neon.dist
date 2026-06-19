@@ -6,3 +6,7 @@ parameters:
         - config
         - tests/ActorTestModel.php
         - tests/DeploymentTestModel.php
+        - tests/ReleaseTestModel.php
+        - tests/ReviewerTestModel.php
+    configDirectories:
+        - config

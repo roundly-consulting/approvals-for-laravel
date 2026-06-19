@@ -86,3 +86,28 @@ it('checks whether an actor has approved an entity', function (): void {
         ->and($anotherActor->hasApproved($deployment))
         ->toBeFalse();
 });
+
+it('approves and rejects through trait sugar', function (): void {
+    $deployment = DeploymentTestModel::create();
+    $actor = ActorTestModel::create();
+
+    $actor->approve($deployment, 'good');
+
+    expect($actor->hasApproved($deployment))->toBeTrue()
+        ->and($actor->hasRejected($deployment))->toBeFalse()
+        ->and($actor->approvalFor($deployment))->not->toBeNull();
+
+    $actor->reject($deployment, 'changed my mind');
+
+    expect($actor->hasRejected($deployment))->toBeTrue();
+});
+
+it('cancels an approval through trait sugar', function (): void {
+    $deployment = DeploymentTestModel::create();
+    $actor = ActorTestModel::create();
+
+    $actor->approve($deployment);
+
+    expect($actor->cancelApproval($deployment))->not->toBeNull()
+        ->and($actor->hasApproved($deployment))->toBeFalse();
+});

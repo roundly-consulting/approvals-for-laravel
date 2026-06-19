@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use RoundlyConsulting\Approvals\Exceptions\InvalidApprovalModelException;
 use RoundlyConsulting\Approvals\Models\Approval;
 use RoundlyConsulting\Approvals\Support\ApprovalModelResolver;
 
@@ -21,10 +22,10 @@ it('rejects a model that does not extend the base approval', function (): void {
     config()->set('approvals.model', stdClass::class);
 
     ApprovalModelResolver::class();
-})->throws(InvalidArgumentException::class);
+})->throws(InvalidApprovalModelException::class);
 
 it('rejects a non-string model configuration', function (): void {
     config()->set('approvals.model', 123);
 
     ApprovalModelResolver::class();
-})->throws(InvalidArgumentException::class);
+})->throws(InvalidApprovalModelException::class);
