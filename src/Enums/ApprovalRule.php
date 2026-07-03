@@ -4,8 +4,20 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Approvals\Enums;
 
+use RoundlyConsulting\Enums\Helpers;
+
+/**
+ * The resolution strategy for an approval request.
+ *
+ * Ships the shared {@see Helpers} trait from enums-for-laravel, adding
+ * value/label/option helpers (`values()`, `labels()`, `options()`,
+ * `toOptions()`, `validationRule()`, `readable()`, case lookups) on top of the
+ * domain-specific `isWeighted()` method below.
+ */
 enum ApprovalRule: string
 {
+    use Helpers;
+
     /** Every approver must approve. */
     case Unanimous = 'unanimous';
 

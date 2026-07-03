@@ -4,8 +4,20 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Approvals\Enums;
 
+use RoundlyConsulting\Enums\Helpers;
+
+/**
+ * The lifecycle state of an approval.
+ *
+ * Ships the shared {@see Helpers} trait from enums-for-laravel, adding
+ * value/label/option helpers (`values()`, `labels()`, `options()`,
+ * `toOptions()`, `validationRule()`, `readable()`, case lookups) on top of the
+ * domain-specific state and transition methods below.
+ */
 enum ApprovalStatus: string
 {
+    use Helpers;
+
     case Pending = 'pending';
     case Approved = 'approved';
     case Rejected = 'rejected';
