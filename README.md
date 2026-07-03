@@ -24,7 +24,7 @@ The original lightweight "toggle" workflow still works as a one-liner.
 
 ## Requirements
 
-- PHP 8.3 or 8.4
+- PHP 8.4
 - Laravel 12 or 13
 
 ## Installation
@@ -420,6 +420,37 @@ $this->rejectAs($release, 'needs work', $otherReviewer);
 Factories ship states for the new models too: `ApprovalFactory::weight()/delegated()/forStage()`,
 `ApprovalRequestFactory::weighted()/staged()`, plus `ApprovalDelegationFactory` and
 `ApprovalRequestStageFactory`.
+
+## Integrates with
+
+### [`enums-for-laravel`](https://github.com/roundly-consulting/enums-for-laravel)
+
+Both package enums — `ApprovalStatus` and `ApprovalRule` — use the shared
+`RoundlyConsulting\Enums\Helpers` trait, so they expose the full fleet helper surface on top of
+their domain methods (`isPending()`/`isDecided()`/`isFinal()`/`canTransitionTo()`;
+`isWeighted()`), with **no lang file to maintain**:
+
+```php
+use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
+use RoundlyConsulting\Approvals\Enums\ApprovalRule;
+
+ApprovalStatus::values();          // ['pending','approved','rejected','cancelled','expired']
+ApprovalStatus::labels();          // ['Pending','Approved','Rejected','Cancelled','Expired']
+ApprovalStatus::options();         // list of {value, label, name} option DTOs for selects
+ApprovalStatus::validationRule();  // 'in:pending,approved,rejected,cancelled,expired'
+ApprovalStatus::tryFromName('Approved');   // ApprovalStatus::Approved
+
+ApprovalStatus::Approved->readable();      // 'Approved' (translated, headline-cased)
+ApprovalStatus::Approved->isIn([ApprovalStatus::Approved, ApprovalStatus::Rejected]); // true
+
+ApprovalRule::options();           // ready-made rule picker
+ApprovalRule::validationRule();    // 'in:unanimous,quorum,any,weighted'
+$rule->readable();                 // 'Unanimous', 'Quorum', 'Any', 'Weighted'
+```
+
+Drop `ApprovalStatus::validationRule()` / `ApprovalRule::validationRule()` straight into host
+request rules, and `::options()` into a select or JSON payload — both stay in sync with the cases
+automatically.
 
 ## Testing
 
