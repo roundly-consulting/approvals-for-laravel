@@ -62,3 +62,52 @@ it('exposes the expected string values', function (): void {
         ->and(ApprovalStatus::Cancelled->value)->toBe('cancelled')
         ->and(ApprovalStatus::Expired->value)->toBe('expired');
 });
+
+it('exposes the backed values in declaration order via the helpers trait', function (): void {
+    expect(ApprovalStatus::values()->all())
+        ->toBe(['pending', 'approved', 'rejected', 'cancelled', 'expired']);
+});
+
+it('builds headline labels and options', function (): void {
+    expect(ApprovalStatus::labels()->all())
+        ->toBe(['Pending', 'Approved', 'Rejected', 'Cancelled', 'Expired'])
+        ->and(ApprovalStatus::toOptions()->all())->toBe([
+            'pending' => 'Pending',
+            'approved' => 'Approved',
+            'rejected' => 'Rejected',
+            'cancelled' => 'Cancelled',
+            'expired' => 'Expired',
+        ]);
+
+    $options = ApprovalStatus::options();
+
+    expect($options)->toHaveCount(5)
+        ->and($options->first()->value)->toBe('pending')
+        ->and($options->first()->label)->toBe('Pending')
+        ->and($options->first()->name)->toBe('Pending');
+});
+
+it('builds a validation rule from the cases', function (): void {
+    expect(ApprovalStatus::validationRule())
+        ->toBe('in:pending,approved,rejected,cancelled,expired');
+});
+
+it('resolves cases by name and label', function (): void {
+    expect(ApprovalStatus::tryFromName('Approved'))->toBe(ApprovalStatus::Approved)
+        ->and(ApprovalStatus::tryFromName('nope'))->toBeNull()
+        ->and(ApprovalStatus::tryFromLabel('Pending'))->toBe(ApprovalStatus::Pending);
+});
+
+it('exposes readable labels and comparison helpers', function (): void {
+    expect(ApprovalStatus::Pending->readable())->toBe('Pending')
+        ->and(ApprovalStatus::Approved->label())->toBe('Approved')
+        ->and(ApprovalStatus::Approved->isIn([ApprovalStatus::Approved, ApprovalStatus::Rejected]))->toBeTrue()
+        ->and(ApprovalStatus::Pending->isIn([ApprovalStatus::Approved, ApprovalStatus::Rejected]))->toBeFalse();
+});
+
+it('keeps its domain methods after adopting the helpers trait', function (): void {
+    expect(ApprovalStatus::Pending->isFinal())->toBeFalse()
+        ->and(ApprovalStatus::Approved->isDecided())->toBeTrue()
+        ->and(ApprovalStatus::Pending->canTransitionTo(ApprovalStatus::Approved))->toBeTrue()
+        ->and(ApprovalStatus::Rejected->canTransitionTo(ApprovalStatus::Cancelled))->toBeFalse();
+});
