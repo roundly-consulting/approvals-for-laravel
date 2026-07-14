@@ -18,7 +18,8 @@
     "require": {
         "php": "^8.4",
         "illuminate/contracts": "^12.0|^13.0",
-        "roundly-consulting/enums-for-laravel": "@dev"
+        "roundly-consulting/enums-for-laravel": "@dev",
+        "roundly-consulting/package-toolkit-for-laravel": "@dev"
     },
     "repositories": [
         {
@@ -31,6 +32,18 @@
         {
             "type": "vcs",
             "url": "https://github.com/roundly-consulting/enums-for-laravel",
+            "no-api": true
+        },
+        {
+            "type": "path",
+            "url": "../package-toolkit-for-laravel*",
+            "options": {
+                "symlink": true
+            }
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/roundly-consulting/package-toolkit-for-laravel",
             "no-api": true
         }
     ],
