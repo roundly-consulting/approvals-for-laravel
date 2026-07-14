@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Approvals\Tests;
 
-use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 use Orchestra\Testbench\TestCase as Orchestra;
@@ -30,30 +29,16 @@ abstract class TestCase extends Orchestra
             'database' => ':memory:',
             'prefix' => '',
         ]);
-
-        $this->setUpDatabaseSchema();
     }
 
-    protected function setUpDatabaseSchema(): void
+    /**
+     * The package's migrations are publish-only — nothing is auto-discovered, so
+     * the suite runs the package's own directory. Its files are ordered by a
+     * numeric prefix, which is exactly the order the migrator needs.
+     */
+    protected function defineDatabaseMigrations(): void
     {
-        Schema::dropAllTables();
-
-        $migrations = [
-            'create_approvals_table',
-            'create_approval_requests_table',
-            'add_v11_columns_to_approvals_table',
-            'add_staging_to_approval_requests_table',
-            'create_approval_request_stages_table',
-            'create_approval_delegations_table',
-        ];
-
-        foreach ($migrations as $name) {
-            $migration = require __DIR__."/../database/migrations/{$name}.php";
-
-            if ($migration instanceof Migration) {
-                $migration->up();
-            }
-        }
+        $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
 
         Schema::create('actors', function (Blueprint $table): void {
             $table->increments('id');
