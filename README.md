@@ -40,8 +40,9 @@ php artisan vendor:publish --tag="approvals-migrations"
 php artisan migrate
 ```
 
-The migrations are also auto-discovered, so the package works without publishing them. Publish
-them only when you want to customise the schema.
+The migrations are **not** loaded automatically — publishing them is required. The six files
+land in your `database/migrations` with timestamps that preserve their order, so `migrate`
+creates the four tables and applies the two schema additions in the order they depend on.
 
 Optionally publish the config file:
 
