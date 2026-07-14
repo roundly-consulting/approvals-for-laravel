@@ -5,54 +5,101 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Approvals;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Foundation\AliasLoader;
-use Illuminate\Support\Facades\Blade;
-use Illuminate\Support\ServiceProvider;
 use RoundlyConsulting\Approvals\Commands\ExpireApprovalsCommand;
 use RoundlyConsulting\Approvals\Facades\Approvals;
 use RoundlyConsulting\Approvals\Support\ApprovalChecker;
+use RoundlyConsulting\Approvals\Support\ApprovalDelegationModelResolver;
 use RoundlyConsulting\Approvals\Support\ApprovalManager;
+use RoundlyConsulting\Approvals\Support\ApprovalModelResolver;
+use RoundlyConsulting\Approvals\Support\ApprovalRequestModelResolver;
+use RoundlyConsulting\Approvals\Support\ApprovalRequestStageModelResolver;
+use RoundlyConsulting\PackageToolkit\Concerns\RegistersBladeDirectives;
+use RoundlyConsulting\PackageToolkit\Package;
+use RoundlyConsulting\PackageToolkit\PackageServiceProvider;
 
-final class ApprovalsServiceProvider extends ServiceProvider
+final class ApprovalsServiceProvider extends PackageServiceProvider
 {
+    use RegistersBladeDirectives;
+
+    public function configurePackage(Package $package): void
+    {
+        $package
+            ->name('approvals')
+            ->hasConfigFile()
+            ->hasMigrations()
+            ->hasCommands([
+                ExpireApprovalsCommand::class,
+            ])
+            ->hasFacadeAlias(Approvals::class)
+            ->contributesToAbout(static fn (): array => [
+                'Model' => class_basename(ApprovalModelResolver::class()),
+                'Request model' => class_basename(ApprovalRequestModelResolver::class()),
+                'Stage model' => class_basename(ApprovalRequestStageModelResolver::class()),
+                'Delegation model' => class_basename(ApprovalDelegationModelResolver::class()),
+                'Default status' => self::defaultStatus(),
+                'Authorization' => config('approvals.authorization.enabled') === true ? 'ENFORCED' : 'OFF',
+                // The gate ability is part of the host's own authorization
+                // vocabulary, so the section reports whether one was configured —
+                // never the ability's name.
+                'Ability' => self::abilityPresence(),
+                'Default expiry' => self::defaultExpiry(),
+                // A workflow name is a host business process ("payout", "layoff"),
+                // so the presets are reported by count, never by name.
+                'Workflow presets' => self::workflowCount(),
+            ]);
+    }
+
     public function register(): void
     {
-        $this->mergeConfigFrom(__DIR__.'/../config/approvals.php', 'approvals');
+        parent::register();
 
         $this->app->singleton(ApprovalManager::class);
-
-        $this->app->booting(function (): void {
-            AliasLoader::getInstance()->alias('Approvals', Approvals::class);
-        });
     }
 
     public function boot(): void
     {
-        $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
+        parent::boot();
 
-        $this->registerBladeDirectives();
+        $this->registerBladeIf('approved', fn (Model $approvable, Model $actor): bool => ApprovalChecker::isApprovedBy($approvable, $actor));
 
-        if ($this->app->runningInConsole()) {
-            $this->commands([
-                ExpireApprovalsCommand::class,
-            ]);
+        $this->registerBladeIf('rejected', fn (Model $approvable, Model $actor): bool => ApprovalChecker::isRejectedBy($approvable, $actor));
 
-            $this->publishes([
-                __DIR__.'/../config/approvals.php' => config_path('approvals.php'),
-            ], 'approvals-config');
-
-            $this->publishes([
-                __DIR__.'/../database/migrations' => database_path('migrations'),
-            ], 'approvals-migrations');
-        }
+        $this->registerBladeIf('pendingApproval', fn (Model $approvable): bool => ApprovalChecker::hasPending($approvable));
     }
 
-    private function registerBladeDirectives(): void
+    private static function defaultStatus(): string
     {
-        Blade::if('approved', fn (Model $approvable, Model $actor): bool => ApprovalChecker::isApprovedBy($approvable, $actor));
+        $status = config('approvals.default_status');
 
-        Blade::if('rejected', fn (Model $approvable, Model $actor): bool => ApprovalChecker::isRejectedBy($approvable, $actor));
+        return is_string($status) && $status !== '' ? $status : 'approved';
+    }
 
-        Blade::if('pendingApproval', fn (Model $approvable): bool => ApprovalChecker::hasPending($approvable));
+    private static function abilityPresence(): string
+    {
+        $ability = config('approvals.authorization.ability');
+
+        if (! is_string($ability) || $ability === '') {
+            return 'NONE';
+        }
+
+        return $ability === 'decide-approval' ? 'DEFAULT' : 'SET';
+    }
+
+    private static function defaultExpiry(): string
+    {
+        $expiry = config('approvals.expiry.default');
+
+        return is_int($expiry) ? $expiry.'s' : 'NEVER';
+    }
+
+    private static function workflowCount(): string
+    {
+        $workflows = config('approvals.workflows');
+
+        if (! is_array($workflows) || $workflows === []) {
+            return 'NONE';
+        }
+
+        return count($workflows).' defined';
     }
 }
