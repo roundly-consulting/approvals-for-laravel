@@ -5,6 +5,7 @@ declare(strict_types=1);
 use RoundlyConsulting\Approvals\Exceptions\InvalidApprovalModelException;
 use RoundlyConsulting\Approvals\Models\Approval;
 use RoundlyConsulting\Approvals\Support\ApprovalModelResolver;
+use RoundlyConsulting\Approvals\Tests\ActorTestModel;
 
 it('resolves the default approval model', function (): void {
     expect(ApprovalModelResolver::class())->toBe(Approval::class);
@@ -26,6 +27,20 @@ it('rejects a model that does not extend the base approval', function (): void {
 
 it('rejects a non-string model configuration', function (): void {
     config()->set('approvals.model', 123);
+
+    ApprovalModelResolver::class();
+})->throws(InvalidApprovalModelException::class);
+
+it('rejects a null model configuration', function (): void {
+    config()->set('approvals.model', null);
+
+    ApprovalModelResolver::class();
+})->throws(InvalidApprovalModelException::class);
+
+it('rejects an eloquent model that is not an approval', function (): void {
+    // The toolkit's resolver only validates "is a model" — the package narrows
+    // that to its own base class, and the failure keeps the package's exception.
+    config()->set('approvals.model', ActorTestModel::class);
 
     ApprovalModelResolver::class();
 })->throws(InvalidApprovalModelException::class);

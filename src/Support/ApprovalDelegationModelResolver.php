@@ -16,13 +16,10 @@ final class ApprovalDelegationModelResolver
      */
     public static function class(): string
     {
-        $model = config('approvals.delegation_model', ApprovalDelegation::class);
+        $model = ConfiguredApprovalsModel::read('approvals.delegation_model', ApprovalDelegation::class);
 
-        if (! is_string($model) || ($model !== ApprovalDelegation::class && ! is_subclass_of($model, ApprovalDelegation::class))) {
-            throw InvalidApprovalModelException::forClass(
-                is_string($model) ? $model : get_debug_type($model),
-                ApprovalDelegation::class,
-            );
+        if (! is_a($model, ApprovalDelegation::class, true)) {
+            throw InvalidApprovalModelException::forClass($model, ApprovalDelegation::class);
         }
 
         return $model;

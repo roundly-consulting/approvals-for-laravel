@@ -16,13 +16,10 @@ final class ApprovalRequestStageModelResolver
      */
     public static function class(): string
     {
-        $model = config('approvals.stage_model', ApprovalRequestStage::class);
+        $model = ConfiguredApprovalsModel::read('approvals.stage_model', ApprovalRequestStage::class);
 
-        if (! is_string($model) || ($model !== ApprovalRequestStage::class && ! is_subclass_of($model, ApprovalRequestStage::class))) {
-            throw InvalidApprovalModelException::forClass(
-                is_string($model) ? $model : get_debug_type($model),
-                ApprovalRequestStage::class,
-            );
+        if (! is_a($model, ApprovalRequestStage::class, true)) {
+            throw InvalidApprovalModelException::forClass($model, ApprovalRequestStage::class);
         }
 
         return $model;
