@@ -21,14 +21,13 @@ ArchPresets::strictTypes('RoundlyConsulting\Approvals');
  * a host to subclass (pinned by the preset below instead), and ApprovalsException, the
  * base every approvals error extends so a host can catch them uniformly.
  */
-ArchPresets::finalByDefault('RoundlyConsulting\Approvals')
-    ->ignoring([
-        Approval::class,
-        ApprovalRequest::class,
-        ApprovalRequestStage::class,
-        ApprovalDelegation::class,
-        ApprovalsException::class,
-    ]);
+ArchPresets::finalByDefault('RoundlyConsulting\Approvals', [
+    Approval::class,
+    ApprovalRequest::class,
+    ApprovalRequestStage::class,
+    ApprovalDelegation::class,
+    ApprovalsException::class,
+]);
 
 /**
  * The counter-weight, and the fleet's 7×-shipped fatal: `final` on a config-swappable
