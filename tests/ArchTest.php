@@ -63,6 +63,15 @@ ArchPresets::modelsResolveThroughSeam(__DIR__.'/../src', 'Support');
  * legitimately lands in `require` that this must forgive. If this goes red, the graph is
  * wrong — never widen the allow-list to quiet it.
  */
+/**
+ * The morph-key seam, guarded. The actor, approvable, subject, decided_by and delegation
+ * columns migrated off raw `$table->morphs()` onto `morphKey($name, KeyType::fromConfig(...))`
+ * so a uuid/ulid host can flip its whole graph coherently — a hardcoded bigint id breaks
+ * those hosts on Postgres, and SQLite type affinity hides it. This pin reds if a future
+ * migration reintroduces a raw morph.
+ */
+ArchPresets::morphColumnsUseTheSeam(__DIR__.'/../database/migrations');
+
 ArchPresets::runtimeRequireIsWhitelisted(__DIR__.'/../composer.json');
 
 ArchPresets::noDebuggingLeftovers();
