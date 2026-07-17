@@ -46,26 +46,25 @@ it('publishes the config file', function (): void {
     ]);
 });
 
-it('never auto-loads its migrations — the host must publish them', function (): void {
-    $registered = array_map(
-        static fn (string $path): string => realpath($path) ?: $path,
-        app('migrator')->paths(),
-    );
+// The hand-rolled "never auto-loads its migrations" check that lived here is gone: it
+// re-implemented `toNotAutoLoadMigrations()` (now in tests/Feature/MigrationOrderTest.php)
+// by reading `app('migrator')->paths()` itself. Proven equivalent rather than assumed —
+// auto-loading the directory in boot() turned both red together.
+//
+// The publish check's count and timestamped-destination halves are likewise now
+// `toPublishMigrationsTimestamped('approvals-migrations', 6)`. What remains below is the
+// half no preset covers.
 
-    expect($registered)->not->toContain(realpath(__DIR__.'/../../database/migrations'));
-});
-
-it('publishes all six migrations timestamp-injected, preserving the dependency order', function (): void {
+it('publishes migrations whose timestamps preserve the dependency order', function (): void {
     $paths = ServiceProvider::pathsToPublish(ApprovalsServiceProvider::class, 'approvals-migrations');
-
-    expect($paths)->toHaveCount(6);
 
     $sources = array_map(basename(...), array_keys($paths));
     $targets = array_map(basename(...), array_values($paths));
 
-    // The package's own sources are numerically prefixed so the directory's sort
-    // order IS the order the migrator must run them in: a table is created before
-    // anything alters it.
+    // The package's sources are numerically prefixed so the directory's sort order IS
+    // the order the migrator must run them in: a table is created before anything
+    // alters it. tests/Feature/MigrationOrderTest.php pins that order *structurally*
+    // (`toHaveRunnableMigrationOrder`) against the source directory.
     expect($sources)->toBe([
         '0001_create_approvals_table.php',
         '0002_create_approval_requests_table.php',
@@ -75,23 +74,16 @@ it('publishes all six migrations timestamp-injected, preserving the dependency o
         '0006_create_approval_delegations_table.php',
     ]);
 
-    foreach (array_values($paths) as $target) {
-        expect(dirname((string) $target))->toBe(database_path('migrations'));
-    }
-
-    expect($targets[0])->toMatch('/^\d{4}_\d{2}_\d{2}_\d{6}_0001_create_approvals_table\.php$/')
-        ->and($targets[1])->toMatch('/^\d{4}_\d{2}_\d{2}_\d{6}_0002_create_approval_requests_table\.php$/')
-        ->and($targets[2])->toMatch('/^\d{4}_\d{2}_\d{2}_\d{6}_0003_add_v11_columns_to_approvals_table\.php$/')
-        ->and($targets[3])->toMatch('/^\d{4}_\d{2}_\d{2}_\d{6}_0004_add_staging_to_approval_requests_table\.php$/')
-        ->and($targets[4])->toMatch('/^\d{4}_\d{2}_\d{2}_\d{6}_0005_create_approval_request_stages_table\.php$/')
-        ->and($targets[5])->toMatch('/^\d{4}_\d{2}_\d{2}_\d{6}_0006_create_approval_delegations_table\.php$/');
-
-    // The published timestamps step forward one file at a time, so the host's
-    // migrator runs them in the same order — each ALTER after its CREATE.
+    // This is the host-facing other half, and the reason it stays: the structural pin
+    // proves the *source* order is runnable, but a host runs the *published* files. The
+    // published timestamps must step forward one file at a time so the host's migrator
+    // reproduces that order — otherwise approvals #2 (an ALTER before its CREATE) ships
+    // to the host despite a green source-order pin. No preset expresses this.
     $sorted = $targets;
     sort($sorted);
 
-    expect($sorted)->toBe($targets);
+    expect($sorted)->toBe($targets)
+        ->and($targets[2])->toMatch('/^\d{4}_\d{2}_\d{2}_\d{6}_0003_add_v11_columns_to_approvals_table\.php$/');
 });
 
 it('contributes an approvals section to about', function (string $expected): void {

@@ -1,0 +1,69 @@
+<?php
+
+declare(strict_types=1);
+
+use RoundlyConsulting\Approvals\Exceptions\ApprovalsException;
+use RoundlyConsulting\Approvals\Models\Approval;
+use RoundlyConsulting\Approvals\Models\ApprovalDelegation;
+use RoundlyConsulting\Approvals\Models\ApprovalRequest;
+use RoundlyConsulting\Approvals\Models\ApprovalRequestStage;
+use RoundlyConsulting\Testing\Arch\ArchPresets;
+
+/**
+ * Approvals shipped with no architecture test at all, so every preset here is a new
+ * guard rather than a replacement — including the two that matter most for a package
+ * that documents four model seams and whose `require` a host installs at runtime.
+ */
+ArchPresets::strictTypes('RoundlyConsulting\Approvals');
+
+/**
+ * The deliberate extension points are exempt: the four models `approvals.*_model` invite
+ * a host to subclass (pinned by the preset below instead), and ApprovalsException, the
+ * base every approvals error extends so a host can catch them uniformly.
+ */
+ArchPresets::finalByDefault('RoundlyConsulting\Approvals')
+    ->ignoring([
+        Approval::class,
+        ApprovalRequest::class,
+        ApprovalRequestStage::class,
+        ApprovalDelegation::class,
+        ApprovalsException::class,
+    ]);
+
+/**
+ * The counter-weight, and the fleet's 7×-shipped fatal: `final` on a config-swappable
+ * model is a PHP fatal the moment a host uses the seam the config documents. Four seams
+ * means four ways to ship it. The preset also pins that each key really defaults to its
+ * packaged model, so a seam cannot rot in the other direction either.
+ */
+ArchPresets::swappableModelsAreNotFinal([
+    Approval::class => 'approvals.model',
+    ApprovalRequest::class => 'approvals.request_model',
+    ApprovalRequestStage::class => 'approvals.stage_model',
+    ApprovalDelegation::class => 'approvals.delegation_model',
+]);
+
+/**
+ * Approvals does no cryptography; the ban is a standing guard against a token or
+ * signature scheme being hand-rolled here rather than in crypto-for-laravel.
+ */
+ArchPresets::noLocalCryptoPrimitives('RoundlyConsulting\Approvals');
+
+/**
+ * Every `approvals.*_model` read goes through a resolver in Support (each delegating to
+ * ConfiguredApprovalsModel). Adopted rather than rejected as jwt rejected it: approvals
+ * has exactly the shape the preset targets — real Eloquent models behind `*_model` keys,
+ * resolved through a Support seam — so the stray-literal half has something to say, and
+ * nothing here needs the late static binding the preset bans.
+ */
+ArchPresets::modelsResolveThroughSeam(__DIR__.'/../src', 'Support');
+
+/**
+ * The Dependency Policy as a test. No `alsoAllow`: approvals' `require` ships only
+ * php/illuminate/roundly, and the workflow installs test tooling with `--dev`, so nothing
+ * legitimately lands in `require` that this must forgive. If this goes red, the graph is
+ * wrong — never widen the allow-list to quiet it.
+ */
+ArchPresets::runtimeRequireIsWhitelisted(__DIR__.'/../composer.json');
+
+ArchPresets::noDebuggingLeftovers();

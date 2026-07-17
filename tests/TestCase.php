@@ -4,52 +4,35 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Approvals\Tests;
 
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
-use Orchestra\Testbench\TestCase as Orchestra;
+use Illuminate\Support\ServiceProvider;
 use RoundlyConsulting\Approvals\ApprovalsServiceProvider;
+use RoundlyConsulting\Testing\PackageTestCase;
 
-abstract class TestCase extends Orchestra
+abstract class TestCase extends PackageTestCase
 {
     /**
-     * @return array<int, class-string>
+     * Every provider approvals needs, in registration order. `enums-for-laravel` is a
+     * hard `require` but ships no provider (it is a helpers-only package), so the list
+     * is genuinely one entry — not an omission.
+     *
+     * @return list<class-string<ServiceProvider>>
      */
-    protected function getPackageProviders($app): array
+    protected function packageProviders(): array
+    {
+        return [ApprovalsServiceProvider::class];
+    }
+
+    /**
+     * The package's six migrations, named by provider class (never by filename), plus
+     * the host-owned fixture tables the approvables and actors live in.
+     *
+     * @return list<class-string<ServiceProvider>|string>
+     */
+    protected function migrationSources(): array
     {
         return [
             ApprovalsServiceProvider::class,
+            __DIR__.'/database/migrations',
         ];
-    }
-
-    protected function getEnvironmentSetUp($app): void
-    {
-        $app['config']->set('database.default', 'testing');
-        $app['config']->set('database.connections.testing', [
-            'driver' => 'sqlite',
-            'database' => ':memory:',
-            'prefix' => '',
-        ]);
-    }
-
-    /**
-     * The package's migrations are publish-only — nothing is auto-discovered, so
-     * the suite runs the package's own directory. Its files are ordered by a
-     * numeric prefix, which is exactly the order the migrator needs.
-     */
-    protected function defineDatabaseMigrations(): void
-    {
-        $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
-
-        Schema::create('actors', function (Blueprint $table): void {
-            $table->increments('id');
-        });
-
-        Schema::create('deployments', function (Blueprint $table): void {
-            $table->increments('id');
-        });
-
-        Schema::create('releases', function (Blueprint $table): void {
-            $table->increments('id');
-        });
     }
 }
