@@ -62,6 +62,23 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Key type
+    |--------------------------------------------------------------------------
+    |
+    | The key type used for the polymorphic actor / approvable / approval_request
+    | / subject / decided_by / delegator / delegate columns. Use "uuid" or "ulid"
+    | when the models an approval points at use UUID/ULID primary keys, otherwise
+    | leave it as "bigint". Your morph targets must share one key type; set this to
+    | match them. Any unrecognized value falls back to "bigint".
+    |
+    | Supported: "bigint", "uuid", "ulid"
+    |
+    */
+
+    'key_type' => env('APPROVALS_KEY_TYPE', 'bigint'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Default status
     |--------------------------------------------------------------------------
     |

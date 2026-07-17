@@ -15,12 +15,13 @@ declare(strict_types=1);
  *    file believes decisions are gated.
  */
 it('ships exactly the config keys it reads', function (): void {
-    expect(__DIR__.'/../../config/approvals.php')->toSatisfyConfigContract(__DIR__.'/../../src', [
+    expect(__DIR__.'/../../config/approvals.php')->toSatisfyConfigContract([__DIR__.'/../../src', __DIR__.'/../../database'], [
         // The four `approvals.*_model` keys are read through the toolkit's
-        // `ModelResolver::for('approvals.…')` seam (via ConfiguredApprovalsModel) rather
-        // than a `config()` call. They are real reads — they drive every model swap — but
-        // they are not `config(` tokens, so the prefix is what makes them visible to the
-        // scraper.
+        // `ModelResolver::for('approvals.…')` seam (via ConfiguredApprovalsModel), and
+        // `approvals.key_type` through `KeyType::fromConfig('approvals.key_type')` in the
+        // migrations (hence `database` in the scanned dirs). They are real reads — the model
+        // keys drive every swap, the key type decides the shipped morph column types — but
+        // none is a `config(` token, so the prefix is what makes them visible to the scraper.
         'extraReadPrefixes' => ['approvals.'],
 
         // Deliberately NO `excludeFromReverse` for the provider. The testing README's own

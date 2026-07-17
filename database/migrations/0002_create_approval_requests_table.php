@@ -6,14 +6,17 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
+use RoundlyConsulting\PackageToolkit\Enums\KeyType;
 
 return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('approval_requests', function (Blueprint $table): void {
+        $keyType = KeyType::fromConfig('approvals.key_type');
+
+        Schema::create('approval_requests', function (Blueprint $table) use ($keyType): void {
             $table->id();
-            $table->nullableMorphs('subject');
+            $table->morphKey('subject', $keyType, nullable: true);
             $table->string('rule');
             $table->unsignedInteger('quorum')->nullable();
             $table->unsignedInteger('required_approvers')->nullable();
