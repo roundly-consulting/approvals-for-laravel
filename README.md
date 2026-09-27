@@ -90,7 +90,7 @@ return [
 | `request_model` | `class-string<ApprovalRequest>` | `ApprovalRequest::class` | Model used to persist multi-approver requests. Must extend the package's `ApprovalRequest`. |
 | `stage_model` | `class-string<ApprovalRequestStage>` | `ApprovalRequestStage::class` | Model used to persist a staged request's stages. Must extend the package's `ApprovalRequestStage`. |
 | `delegation_model` | `class-string<ApprovalDelegation>` | `ApprovalDelegation::class` | Model used to persist delegations. Must extend the package's `ApprovalDelegation`. |
-| `default_status` | `string` | `'approved'` | Status applied to a toggled approval. Keeps the legacy toggle = approved behaviour. |
+| `default_status` | `string` | `'approved'` | Status applied to a toggled approval (`approved` by default). |
 | `authorization.enabled` | `bool` | `false` (env `APPROVALS_AUTHORIZATION`) | When true, every decision is gated through a Gate ability. |
 | `authorization.ability` | `string` | `'decide-approval'` | The Gate ability checked against the approvable. |
 | `expiry.default` | `int\|null` | `null` | Default approval lifetime in seconds. `null` means never. |
@@ -148,7 +148,7 @@ same manager.
 $user->approve($deployment, 'LGTM');     // Approval
 $user->reject($deployment, 'needs work'); // Approval
 $user->cancelApproval($deployment);       // ?Approval
-$user->toggleApproval($deployment);       // bool (legacy on/off)
+$user->toggleApproval($deployment);       // bool (simple on/off)
 
 $user->hasApproved($deployment);          // bool — holds an approved decision
 $user->hasRejected($deployment);          // bool
@@ -335,7 +335,7 @@ Each transition dispatches an event carrying the relevant model:
 | `ApprovalCancelled` | a decision is withdrawn |
 | `ApprovalExpired` | a pending decision lapses |
 | `ApprovalRequestResolved` | a request reaches approved/rejected |
-| `ApprovalToggled` | the legacy `toggleApproval()` runs |
+| `ApprovalToggled` | `toggleApproval()` runs |
 | `ApprovalStageOpened` | a staged request opens a stage |
 | `ApprovalStageCleared` | a staged request clears a stage |
 | `ApprovalDelegated` | an approver delegates authority |
@@ -369,34 +369,15 @@ class NotifyOnApproval
 }
 ```
 
-### The legacy toggle
+### The simple toggle
 
 ```php
 $user->toggleApproval($deployment); // true  — approval created (status: approved)
 $user->toggleApproval($deployment); // false — approval removed (soft delete)
 ```
 
-`toggleApproval()` keeps its exact original behaviour and still fires `ApprovalToggled`.
-
-## Upgrade notes
-
-- `hasApproved()` / `hasBeenApprovedBy()` now mean "holds an **approved** decision" rather than
-  "a row exists". Because the legacy toggle path only ever creates approved rows, this is
-  observably identical for code that only used toggling.
-- `ApprovalModelResolver` now throws `InvalidApprovalModelException` (a `RuntimeException`)
-  instead of `InvalidArgumentException`.
-
-### v1.1
-
-All v1.1 changes are additive and backward-compatible:
-
-- New tables (`approval_delegations`, `approval_request_stages`) and new columns on
-  `approvals` (`decided_by`, `weight`, `approval_request_stage_id`) and `approval_requests`
-  (`staged`, `reject_on_stage_rejection`, `workflow`). Publish and run the migrations.
-- New `ApprovalRule::Weighted` case. `ApprovalRule::Quorum` now sums decision **weight**; with
-  the default weight of `1` this is identical to the previous headcount behaviour.
-- `ApprovalStatusChanged` is dispatched **in addition to** the existing granular events — none
-  were removed.
+`toggleApproval()` is the one-click on/off form: it creates an approved decision or soft-deletes
+it, and fires `ApprovalToggled`.
 
 ### Test helpers (for host apps)
 

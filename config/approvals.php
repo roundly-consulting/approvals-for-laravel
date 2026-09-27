@@ -82,8 +82,8 @@ return [
     | Default status
     |--------------------------------------------------------------------------
     |
-    | The status applied to a newly toggled approval. Defaults to "approved" so
-    | the legacy toggle behaviour (a created row means approved) is preserved.
+    | The status applied to a newly toggled approval. Defaults to "approved":
+    | toggling on records an approved decision.
     |
     */
 

@@ -12,8 +12,8 @@ use RoundlyConsulting\Approvals\Support\ApprovalModelResolver;
 final class ToggleApprovalAction
 {
     /**
-     * Toggle the actor's approval of the approvable, preserving the legacy create/soft-delete
-     * behaviour: a created row is approved, toggling again soft-deletes it.
+     * Toggle the actor's approval of the approvable: a created row is approved, toggling again
+     * soft-deletes it.
      *
      * @return bool true when the approval was created, false when it was removed
      */
