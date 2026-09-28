@@ -32,6 +32,8 @@ final class OpenApprovalRequestAction
         $request->quorum = $data->quorum;
         $request->approvers = ApproverList::payload($named);
         $request->required_approvers = ApproverList::required($named, $data->requiredApprovers);
+
+        ApproverList::ensureReachable($data->rule, $data->quorum, $request->required_approvers, $named);
         $request->status = ApprovalStatus::Pending;
         $request->workflow = $data->workflow;
         $request->expires_at = $data->expiresAt === null

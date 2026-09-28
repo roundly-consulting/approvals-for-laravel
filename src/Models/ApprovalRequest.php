@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use RoundlyConsulting\Approvals\Database\Factories\ApprovalRequestFactory;
 use RoundlyConsulting\Approvals\DataTransferObjects\ApprovalProgress;
+use RoundlyConsulting\Approvals\DataTransferObjects\DecisionTally;
 use RoundlyConsulting\Approvals\DataTransferObjects\NamedApprover;
 use RoundlyConsulting\Approvals\Enums\ApprovalRule;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
@@ -160,15 +161,7 @@ class ApprovalRequest extends Model
 
     private function resolveFlat(): static
     {
-        [$approvals, $rejections] = $this->tally($this->decisions()->get());
-
-        $outcome = app(RuleEvaluator::class)->evaluate(
-            $this->rule,
-            $approvals,
-            $rejections,
-            $this->required_approvers ?? 0,
-            $this->quorum,
-        );
+        $outcome = app(RuleEvaluator::class)->evaluate($this->rule, $this->flatTally());
 
         if ($outcome === null) {
             return $this;
@@ -193,15 +186,7 @@ class ApprovalRequest extends Model
 
             $stage->markOpened();
 
-            [$approvals, $rejections] = $this->tally($stage->decisions()->get());
-
-            $outcome = $evaluator->evaluate(
-                $stage->rule,
-                $approvals,
-                $rejections,
-                $stage->required_approvers ?? 0,
-                $stage->quorum,
-            );
+            $outcome = $evaluator->evaluate($stage->rule, $this->stageTally($stage));
 
             if ($outcome === null) {
                 // The earliest unresolved stage is the gate: stop here.
@@ -248,23 +233,75 @@ class ApprovalRequest extends Model
         return $this;
     }
 
+    private function flatTally(): DecisionTally
+    {
+        return $this->tally(
+            $this->decisions()->get(),
+            $this->rule,
+            $this->required_approvers ?? 0,
+            $this->quorum,
+            $this->namedApprovers(),
+        );
+    }
+
+    private function stageTally(ApprovalRequestStage $stage): DecisionTally
+    {
+        return $this->tally(
+            $stage->decisions()->get(),
+            $stage->rule,
+            $stage->required_approvers ?? 0,
+            $stage->quorum,
+            $stage->namedApprovers(),
+        );
+    }
+
     /**
-     * Tally the summed approval/rejection weight of a decision set.
+     * Tally a decision set: approvals and rejections by headcount and by weight, and
+     * who is still to decide.
+     *
+     * With named approvers, the outstanding ones are those without a decision, and the
+     * weight they could still add is the weight each carried when the request opened.
+     * Without names only a headcount is known; each outstanding slot counts as weight 1,
+     * except under the Weighted rule, where an unnamed approver's weight is unknowable.
      *
      * @param  Collection<int, Approval>  $decisions
-     * @return array{0: int, 1: int}
+     * @param  list<NamedApprover>  $named
      */
-    private function tally(Collection $decisions): array
+    private function tally(Collection $decisions, ApprovalRule $rule, int $required, ?int $quorum, array $named): DecisionTally
     {
-        $approvals = (int) $decisions
-            ->where('status', ApprovalStatus::Approved)
-            ->sum('weight');
+        $decided = $decisions->filter(
+            static fn (Approval $decision): bool => $decision->status === ApprovalStatus::Approved
+                || $decision->status === ApprovalStatus::Rejected,
+        );
 
-        $rejections = (int) $decisions
-            ->where('status', ApprovalStatus::Rejected)
-            ->sum('weight');
+        $approved = $decided->where('status', ApprovalStatus::Approved);
+        $rejected = $decided->where('status', ApprovalStatus::Rejected);
 
-        return [$approvals, $rejections];
+        if ($named === []) {
+            $outstandingCount = max(0, $required - $decided->count());
+            $outstandingWeight = $rule === ApprovalRule::Weighted ? null : $outstandingCount;
+        } else {
+            $outstanding = array_filter(
+                $named,
+                static fn (NamedApprover $approver): bool => ! $decided->contains(
+                    static fn (Approval $decision): bool => $approver->isActorOf($decision),
+                ),
+            );
+
+            $outstandingCount = count($outstanding);
+            $outstandingWeight = array_sum(array_map(static fn (NamedApprover $approver): int => $approver->weight, $outstanding));
+        }
+
+        return new DecisionTally(
+            approvedCount: $approved->count(),
+            rejectedCount: $rejected->count(),
+            approvedWeight: (int) $approved->sum('weight'),
+            rejectedWeight: (int) $rejected->sum('weight'),
+            required: $required,
+            quorum: $quorum,
+            outstandingCount: $outstandingCount,
+            outstandingWeight: $outstandingWeight,
+        );
     }
 
     private function finalize(ApprovalStatus $outcome): void
@@ -288,12 +325,12 @@ class ApprovalRequest extends Model
             return $this->stagedProgress();
         }
 
-        [$approvals, $rejections] = $this->tally($this->decisions()->get());
+        $tally = $this->flatTally();
 
         return new ApprovalProgress(
             status: $this->status,
-            approved: $approvals,
-            rejected: $rejections,
+            approved: $this->rule->isWeighted() ? $tally->approvedWeight : $tally->approvedCount,
+            rejected: $this->rule->isWeighted() ? $tally->rejectedWeight : $tally->rejectedCount,
             required: $this->required_approvers ?? 0,
             threshold: $this->quorum,
             currentStage: null,
@@ -316,7 +353,9 @@ class ApprovalRequest extends Model
         $threshold = null;
 
         if ($current instanceof ApprovalRequestStage) {
-            [$approvals, $rejections] = $this->tally($current->decisions()->get());
+            $tally = $this->stageTally($current);
+            $approvals = $current->rule->isWeighted() ? $tally->approvedWeight : $tally->approvedCount;
+            $rejections = $current->rule->isWeighted() ? $tally->rejectedWeight : $tally->rejectedCount;
             $required = $current->required_approvers ?? 0;
             $threshold = $current->quorum;
         }

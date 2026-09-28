@@ -224,7 +224,7 @@ describe('requests', function (): void {
             ->and($request->quorum)->toBe($quorum);
     })->with([
         'any' => [fn (PendingApprovalRequest $p): PendingApprovalRequest => $p->any(), ApprovalRule::Any, null],
-        'weighted' => [fn (PendingApprovalRequest $p): PendingApprovalRequest => $p->weighted(5), ApprovalRule::Weighted, 5],
+        'weighted' => [fn (PendingApprovalRequest $p): PendingApprovalRequest => $p->weighted(1), ApprovalRule::Weighted, 1],
         'rule' => [fn (PendingApprovalRequest $p): PendingApprovalRequest => $p->quorum(3)->rule(ApprovalRule::Unanimous), ApprovalRule::Unanimous, null],
     ]);
 

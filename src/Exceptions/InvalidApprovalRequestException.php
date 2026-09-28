@@ -45,6 +45,20 @@ final class InvalidApprovalRequestException extends ApprovalsException
         return new self("An approval request cannot require {$required} approvers when only {$named} are named.");
     }
 
+    public static function thresholdBelowOne(int $quorum): self
+    {
+        return new self("An approval request's quorum must be at least 1, {$quorum} given.");
+    }
+
+    /**
+     * The approvers in play could never reach the quorum/weighted threshold, even if
+     * every one of them approved.
+     */
+    public static function unreachableThreshold(int $threshold, int $reachable): self
+    {
+        return new self("An approval request's threshold of {$threshold} can never be met: its approvers carry {$reachable} at most.");
+    }
+
     private static function keyOf(Model $model): string
     {
         $key = $model->getKey();

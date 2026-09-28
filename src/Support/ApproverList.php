@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Approvals\Support;
 
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Approvals\DataTransferObjects\NamedApprover;
+use RoundlyConsulting\Approvals\Enums\ApprovalRule;
 use RoundlyConsulting\Approvals\Exceptions\InvalidApprovalRequestException;
 
 /**
@@ -73,5 +74,39 @@ final class ApproverList
         }
 
         return $required;
+    }
+
+    /**
+     * Refuse a quorum/weighted threshold that could never be met: below 1, above the
+     * total weight the named approvers carry, or — for a Quorum request without names,
+     * where each approver counts as 1 — above its headcount. (An unnamed Weighted
+     * request cannot know what its approvers weigh, so its threshold is taken on trust.)
+     *
+     * Per-decision `weight()` overrides are not anticipated: give approvers their
+     * weight through `ProvidesApprovalWeight` when a request depends on it.
+     *
+     * @param  list<NamedApprover>  $named
+     */
+    public static function ensureReachable(ApprovalRule $rule, ?int $quorum, int $required, array $named): void
+    {
+        if (! $rule->isWeighted()) {
+            return;
+        }
+
+        if ($quorum !== null && $quorum < 1) {
+            throw InvalidApprovalRequestException::thresholdBelowOne($quorum);
+        }
+
+        $threshold = $quorum ?? $required;
+
+        $reachable = match (true) {
+            $named !== [] => array_sum(array_map(static fn (NamedApprover $approver): int => $approver->weight, $named)),
+            $rule === ApprovalRule::Quorum && $required > 0 => $required,
+            default => null,
+        };
+
+        if ($reachable !== null && $threshold > $reachable) {
+            throw InvalidApprovalRequestException::unreachableThreshold($threshold, $reachable);
+        }
     }
 }

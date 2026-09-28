@@ -39,6 +39,8 @@ final class RequestStagedApprovalAction
         foreach ($stages as $index => $definition) {
             $named[$index] = ApproverList::name($definition->approvers, $subject);
             $required[$index] = ApproverList::required($named[$index], $definition->requiredApprovers);
+
+            ApproverList::ensureReachable($definition->rule, $definition->quorum, $required[$index], $named[$index]);
         }
 
         $requestModel = ApprovalRequestModelResolver::class();

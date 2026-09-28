@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Approvals\DataTransferObjects;
 
 use Illuminate\Database\Eloquent\Model;
+use RoundlyConsulting\Approvals\Models\Approval;
 
 /**
  * One approver named on a request or stage: the morph type and key that identify it,
@@ -29,6 +30,15 @@ final readonly class NamedApprover
         return $model->getMorphClass() === $this->type
             && (is_int($key) || is_string($key))
             && (string) $key === (string) $this->id;
+    }
+
+    /**
+     * Whether `$decision` was recorded with this approver as its actor.
+     */
+    public function isActorOf(Approval $decision): bool
+    {
+        return $decision->actor_type === $this->type
+            && (string) $decision->actor_id === (string) $this->id;
     }
 
     /**
