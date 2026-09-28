@@ -54,7 +54,7 @@ it('links a fresh rejection over a prior approval to a request', function (): vo
         ->and($rejected->status)->toBe(ApprovalStatus::Rejected);
 });
 
-it('records a fresh rejection over a prior approval', function (): void {
+it('records a fresh rejection over a prior approval and withdraws the approval', function (): void {
     $actor = ActorTestModel::create();
     $deployment = DeploymentTestModel::create();
 
@@ -63,6 +63,7 @@ it('records a fresh rejection over a prior approval', function (): void {
 
     expect($rejected->id)->not->toBe($approved->id)
         ->and($rejected->status)->toBe(ApprovalStatus::Rejected)
-        ->and(Approval::query()->approved()->count())->toBe(1)
+        ->and($approved->fresh()?->status)->toBe(ApprovalStatus::Cancelled)
+        ->and(Approval::query()->approved()->count())->toBe(0)
         ->and(Approval::query()->rejected()->count())->toBe(1);
 });

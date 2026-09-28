@@ -46,18 +46,27 @@ enum ApprovalStatus: string
     }
 
     /**
+     * Whether a decision in this status is still the actor's live decision in its slot
+     * (pending, approved or rejected) rather than withdrawn, superseded or lapsed.
+     */
+    public function isLive(): bool
+    {
+        return $this === self::Pending || $this === self::Approved || $this === self::Rejected;
+    }
+
+    /**
      * Whether a transition from this status to the given status is legal.
      *
-     * A pending approval may move to any decided/withdrawn/expired state. An approved
-     * approval may still be cancelled (withdrawn). Rejected, cancelled and expired are
-     * terminal.
+     * A pending approval may move to any decided/withdrawn/expired state. A decided
+     * approval (approved or rejected) may still be cancelled — withdrawn by its actor, or
+     * superseded when the actor changes their mind. Cancelled and expired are terminal.
      */
     public function canTransitionTo(self $to): bool
     {
         return match ($this) {
             self::Pending => $to !== self::Pending,
-            self::Approved => $to === self::Cancelled,
-            self::Rejected, self::Cancelled, self::Expired => false,
+            self::Approved, self::Rejected => $to === self::Cancelled,
+            self::Cancelled, self::Expired => false,
         };
     }
 }

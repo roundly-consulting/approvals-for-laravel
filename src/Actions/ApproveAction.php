@@ -30,35 +30,22 @@ final class ApproveAction
 
         $data ??= DecisionData::approved();
 
-        $decidedBy = null;
-        $effectiveActor = $this->effectiveActor($actor, $decidedBy);
+        $target = $this->decisionTarget($actor, $approvable, $request);
 
-        $request = $this->requestFor($approvable, $request);
+        $recorded = $this->recordDecision($target, ApprovalStatus::Approved, $data);
 
-        $approval = $this->activeApprovalFor($effectiveActor, $approvable);
-
-        // Already approved and active: idempotent no-op.
-        if ($approval->exists && $approval->status === ApprovalStatus::Approved) {
-            return $approval;
+        // Approving again in the same slot is an idempotent no-op.
+        if (! $recorded->changed) {
+            return $recorded->approval;
         }
 
-        $from = $approval->status;
+        $this->announceSuperseded($recorded, $target->actor);
 
-        if ($request instanceof ApprovalRequest) {
-            $approval->approval_request_id = $request->getKey();
-            $approval->approval_request_type = $request->getMorphClass();
-        }
+        ApprovalApproved::dispatch($recorded->approval);
+        ApprovalStatusChanged::dispatch($recorded->approval, $recorded->from, ApprovalStatus::Approved, $target->actor);
 
-        $this->applyDecisionContext($approval, $effectiveActor, $decidedBy, $approvable, $data->weight);
-        $this->attachStage($approval, $request);
+        $target->request?->resolve();
 
-        $approval->approve($data->reason, $data->expiresAt);
-
-        ApprovalApproved::dispatch($approval);
-        ApprovalStatusChanged::dispatch($approval, $from, ApprovalStatus::Approved, $effectiveActor);
-
-        $request?->resolve();
-
-        return $approval;
+        return $recorded->approval;
     }
 }

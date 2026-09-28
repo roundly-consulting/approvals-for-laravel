@@ -6,17 +6,28 @@ namespace RoundlyConsulting\Approvals\Actions;
 
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Approvals\Actions\Concerns\AuthorizesDecisions;
+use RoundlyConsulting\Approvals\Actions\Concerns\ResolvesApproval;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
+use RoundlyConsulting\Approvals\Events\ApprovalStatusChanged;
 use RoundlyConsulting\Approvals\Events\ApprovalToggled;
-use RoundlyConsulting\Approvals\Support\ApprovalModelResolver;
+use RoundlyConsulting\Approvals\Models\Approval;
+use RoundlyConsulting\Approvals\Support\LiveDecisions;
 
 final class ToggleApprovalAction
 {
     use AuthorizesDecisions;
+    use ResolvesApproval;
+
+    public function __construct(
+        private readonly ApproveAction $approve,
+    ) {}
 
     /**
-     * Toggle the actor's approval of the approvable: a created row is approved, toggling again
-     * soft-deletes it.
+     * Toggle the actor's approval of the approvable. With no live approval in the slot
+     * (the approvable's open request, or standalone) it approves — through the same path
+     * as approve(), so the gate, delegation and the request's rule all apply, and a
+     * held rejection is superseded. With a live approval it withdraws and soft-deletes
+     * it.
      *
      * @return bool true when the approval was created, false when it was removed
      */
@@ -24,26 +35,24 @@ final class ToggleApprovalAction
     {
         $this->authorizeDecision($actor, $approvable);
 
-        $model = ApprovalModelResolver::class();
+        $target = $this->decisionTarget($actor, $approvable, null);
 
-        $approval = $model::query()
-            ->whereMorphedTo('actor', $actor)
-            ->whereMorphedTo('approvable', $approvable)
-            ->firstOrCreate([
-                'actor_id' => $actor->getKey(),
-                'actor_type' => $actor->getMorphClass(),
-                'approvable_id' => $approvable->getKey(),
-                'approvable_type' => $approvable->getMorphClass(),
-            ], [
-                'status' => ApprovalStatus::Approved,
-            ]);
+        $live = app(LiveDecisions::class)->in($target);
 
-        if (! $approval->wasRecentlyCreated) {
-            $approval->delete();
+        if ($live instanceof Approval && $live->status === ApprovalStatus::Approved) {
+            $live->cancel();
+            $live->delete();
+
+            ApprovalStatusChanged::dispatch($live, ApprovalStatus::Approved, ApprovalStatus::Cancelled, $target->actor);
+            ApprovalToggled::dispatch($actor, $approvable, false);
+
+            return false;
         }
 
-        ApprovalToggled::dispatch($actor, $approvable, $approval->wasRecentlyCreated);
+        $this->approve->execute($actor, $approvable);
 
-        return $approval->wasRecentlyCreated;
+        ApprovalToggled::dispatch($actor, $approvable, true);
+
+        return true;
     }
 }

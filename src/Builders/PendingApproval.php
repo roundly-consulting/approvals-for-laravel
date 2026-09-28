@@ -143,7 +143,8 @@ final class PendingApproval
     }
 
     /**
-     * Withdraw the actor's active decision, if it has one.
+     * Withdraw the actor's live decision (pending, approved or rejected), or one it made
+     * as a delegate, if there is one — within the pinned request when within() was used.
      */
     public function cancel(): ?Approval
     {
@@ -153,7 +154,7 @@ final class PendingApproval
         return $this->manager->perform(
             ApprovalOperation::Cancel,
             CancelApprovalAction::class,
-            fn (CancelApprovalAction $action): ?Approval => $action->execute($actor, $approvable, $this->reason),
+            fn (CancelApprovalAction $action): ?Approval => $action->execute($actor, $approvable, $this->reason, $this->request),
             $this->context($actor, $approvable),
         );
     }

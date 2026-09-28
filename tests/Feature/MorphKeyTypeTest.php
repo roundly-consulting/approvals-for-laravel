@@ -88,6 +88,7 @@ it('emits the frozen bigint morph schema byte-for-byte', function (): void {
         .'"approvable_type" varchar not null, "approvable_id" integer not null, '
         .'"status" varchar not null default \'approved\', "reason" text, '
         .'"approval_request_type" varchar, "approval_request_id" integer, '
+        .'"decision_scope" varchar not null default \'\', "live" tinyint(1), '
         .'"decided_at" datetime, "expires_at" datetime, '
         .'"created_at" datetime, "updated_at" datetime, "deleted_at" datetime, '
         .'"decided_by_type" varchar, "decided_by_id" integer, '

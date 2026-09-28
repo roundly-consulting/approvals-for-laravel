@@ -41,8 +41,22 @@ it('forbids transitioning pending to pending', function (): void {
 it('allows an approved approval to be withdrawn', function (): void {
     expect(ApprovalStatus::Approved->canTransitionTo(ApprovalStatus::Cancelled))->toBeTrue()
         ->and(ApprovalStatus::Approved->canTransitionTo(ApprovalStatus::Rejected))->toBeFalse()
-        ->and(ApprovalStatus::Approved->canTransitionTo(ApprovalStatus::Expired))->toBeFalse()
         ->and(ApprovalStatus::Approved->canTransitionTo(ApprovalStatus::Approved))->toBeFalse();
+});
+
+it('allows a rejection to be withdrawn or superseded, and nothing else', function (): void {
+    expect(ApprovalStatus::Rejected->canTransitionTo(ApprovalStatus::Cancelled))->toBeTrue()
+        ->and(ApprovalStatus::Rejected->canTransitionTo(ApprovalStatus::Approved))->toBeFalse()
+        ->and(ApprovalStatus::Rejected->canTransitionTo(ApprovalStatus::Expired))->toBeFalse()
+        ->and(ApprovalStatus::Rejected->canTransitionTo(ApprovalStatus::Rejected))->toBeFalse();
+});
+
+it('reports which statuses hold the live decision of a slot', function (): void {
+    expect(ApprovalStatus::Pending->isLive())->toBeTrue()
+        ->and(ApprovalStatus::Approved->isLive())->toBeTrue()
+        ->and(ApprovalStatus::Rejected->isLive())->toBeTrue()
+        ->and(ApprovalStatus::Cancelled->isLive())->toBeFalse()
+        ->and(ApprovalStatus::Expired->isLive())->toBeFalse();
 });
 
 it('forbids any transition out of a terminal state', function (ApprovalStatus $from): void {
@@ -50,7 +64,6 @@ it('forbids any transition out of a terminal state', function (ApprovalStatus $f
         expect($from->canTransitionTo($to))->toBeFalse();
     }
 })->with([
-    ApprovalStatus::Rejected,
     ApprovalStatus::Cancelled,
     ApprovalStatus::Expired,
 ]);
@@ -109,5 +122,5 @@ it('keeps its domain methods after adopting the helpers trait', function (): voi
     expect(ApprovalStatus::Pending->isFinal())->toBeFalse()
         ->and(ApprovalStatus::Approved->isDecided())->toBeTrue()
         ->and(ApprovalStatus::Pending->canTransitionTo(ApprovalStatus::Approved))->toBeTrue()
-        ->and(ApprovalStatus::Rejected->canTransitionTo(ApprovalStatus::Cancelled))->toBeFalse();
+        ->and(ApprovalStatus::Cancelled->canTransitionTo(ApprovalStatus::Approved))->toBeFalse();
 });

@@ -16,6 +16,7 @@ use RoundlyConsulting\Approvals\Database\Factories\ApprovalFactory;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Exceptions\InvalidStatusTransitionException;
 use RoundlyConsulting\Approvals\Support\ApprovalRequestStageModelResolver;
+use RoundlyConsulting\Approvals\Support\DecisionScope;
 
 /**
  * @property int $id
@@ -27,6 +28,8 @@ use RoundlyConsulting\Approvals\Support\ApprovalRequestStageModelResolver;
  * @property string|null $reason
  * @property int|null $approval_request_id
  * @property string|null $approval_request_type
+ * @property string $decision_scope
+ * @property bool|null $live
  * @property int|null $approval_request_stage_id
  * @property int|null $decided_by_id
  * @property string|null $decided_by_type
@@ -42,7 +45,9 @@ class Approval extends Model
     /** @use HasFactory<ApprovalFactory> */
     use HasFactory;
 
-    use SoftDeletes;
+    use SoftDeletes {
+        runSoftDelete as protected softDeleteRow;
+    }
 
     protected $guarded = [];
 
@@ -54,6 +59,7 @@ class Approval extends Model
         return [
             'status' => ApprovalStatus::class,
             'weight' => 'integer',
+            'live' => 'boolean',
             'decided_at' => 'immutable_datetime',
             'expires_at' => 'immutable_datetime',
         ];
@@ -152,6 +158,17 @@ class Approval extends Model
     }
 
     /**
+     * The actor's live decision in each slot: pending, approved or rejected, and not yet
+     * withdrawn, superseded, expired or soft-deleted.
+     *
+     * @param  Builder<Approval>  $query
+     */
+    public function scopeLive(Builder $query): void
+    {
+        $query->where('live', true);
+    }
+
+    /**
      * @param  Builder<Approval>  $query
      */
     public function scopeExpiringBefore(Builder $query, CarbonInterface $moment): void
@@ -216,6 +233,52 @@ class Approval extends Model
         }
 
         $this->status = $to;
+    }
+
+    /**
+     * Keep `decision_scope` and `live` in step with the row on every save — whoever saves
+     * it (the actions, a factory, host code) — so the unique live-decision index always
+     * sees the truth. Done here rather than in a `saving` listener, because a host test
+     * under `Event::fake()` silences model events and would write rows the index cannot
+     * guard.
+     *
+     * @param  array<string, mixed>  $options
+     */
+    public function save(array $options = []): bool
+    {
+        $this->syncDecisionSlot();
+
+        return parent::save($options);
+    }
+
+    /**
+     * Derive the slot from the request/stage the decision belongs to, and whether it is
+     * still the actor's live decision there (pending, approved or rejected, not trashed).
+     *
+     * @internal
+     */
+    public function syncDecisionSlot(): void
+    {
+        $this->decision_scope = DecisionScope::key($this->approval_request_id, $this->approval_request_stage_id);
+
+        $status = $this->getAttribute('status');
+
+        // An unset status takes the column default (approved) on insert.
+        $live = $status instanceof ApprovalStatus ? $status->isLive() : true;
+
+        $this->live = $live && ! $this->trashed() ? true : null;
+    }
+
+    /**
+     * A soft delete writes only `deleted_at`; free the decision slot as well.
+     */
+    protected function runSoftDelete(): void
+    {
+        $this->softDeleteRow();
+
+        $this->live = null;
+        $this->newModelQuery()->whereKey($this->getKey())->update(['live' => null]);
+        $this->syncOriginalAttribute('live');
     }
 
     protected static function newFactory(): ApprovalFactory

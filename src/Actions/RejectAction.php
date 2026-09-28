@@ -29,33 +29,23 @@ final class RejectAction
 
         $data ??= DecisionData::rejected();
 
-        $decidedBy = null;
-        $effectiveActor = $this->effectiveActor($actor, $decidedBy);
+        $target = $this->decisionTarget($actor, $approvable, $request);
 
-        $request = $this->requestFor($approvable, $request);
+        // Rejecting over an earlier approval withdraws that approval: only the latest
+        // decision of an actor counts.
+        $recorded = $this->recordDecision($target, ApprovalStatus::Rejected, $data);
 
-        $approval = $this->activeApprovalFor($effectiveActor, $approvable);
-
-        // An already-approved row is final; record the rejection as a fresh decision.
-        if ($approval->exists && $approval->status === ApprovalStatus::Approved) {
-            $approval = $this->newApprovalFor($effectiveActor, $approvable, $request);
-        } elseif ($request instanceof ApprovalRequest) {
-            $approval->approval_request_id = $request->getKey();
-            $approval->approval_request_type = $request->getMorphClass();
+        if (! $recorded->changed) {
+            return $recorded->approval;
         }
 
-        $from = $approval->status;
+        $this->announceSuperseded($recorded, $target->actor);
 
-        $this->applyDecisionContext($approval, $effectiveActor, $decidedBy, $approvable, $data->weight);
-        $this->attachStage($approval, $request);
+        ApprovalRejected::dispatch($recorded->approval);
+        ApprovalStatusChanged::dispatch($recorded->approval, $recorded->from, ApprovalStatus::Rejected, $target->actor);
 
-        $approval->reject($data->reason);
+        $target->request?->resolve();
 
-        ApprovalRejected::dispatch($approval);
-        ApprovalStatusChanged::dispatch($approval, $from, ApprovalStatus::Rejected, $effectiveActor);
-
-        $request?->resolve();
-
-        return $approval;
+        return $recorded->approval;
     }
 }

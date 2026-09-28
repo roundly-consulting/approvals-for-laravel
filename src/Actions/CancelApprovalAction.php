@@ -11,7 +11,8 @@ use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Events\ApprovalCancelled;
 use RoundlyConsulting\Approvals\Events\ApprovalStatusChanged;
 use RoundlyConsulting\Approvals\Models\Approval;
-use RoundlyConsulting\Approvals\Support\ApprovalModelResolver;
+use RoundlyConsulting\Approvals\Models\ApprovalRequest;
+use RoundlyConsulting\Approvals\Support\LiveDecisions;
 
 final class CancelApprovalAction
 {
@@ -19,23 +20,26 @@ final class CancelApprovalAction
     use ResolvesApproval;
 
     /**
-     * Withdraw the actor's active approval of the approvable, if one exists.
+     * Withdraw the actor's live decision (pending, approved or rejected) on the
+     * approvable, if it holds one — or, failing that, the latest live decision it made
+     * on a delegator's behalf. Limited to one request when given.
      */
-    public function execute(Model $actor, Model $approvable, ?string $reason = null): ?Approval
-    {
+    public function execute(
+        Model $actor,
+        Model $approvable,
+        ?string $reason = null,
+        ?ApprovalRequest $request = null,
+    ): ?Approval {
         // Withdrawing a decision changes the outcome as much as making one.
         $this->authorizeDecision($actor, $approvable);
 
-        $model = ApprovalModelResolver::class();
+        if ($request instanceof ApprovalRequest) {
+            $this->ensureRequestBelongsTo($request, $approvable);
+        }
 
-        $approval = $model::query()
-            ->whereMorphedTo('actor', $actor)
-            ->whereMorphedTo('approvable', $approvable)
-            ->active()
-            ->latest('id')
-            ->first();
+        $approval = app(LiveDecisions::class)->withdrawableBy($actor, $approvable, $request);
 
-        if (! $approval instanceof Approval || $approval->status === ApprovalStatus::Cancelled) {
+        if (! $approval instanceof Approval) {
             return null;
         }
 
