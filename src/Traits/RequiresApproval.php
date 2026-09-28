@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Approvals\Traits;
 
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
-use RoundlyConsulting\Approvals\Actions\RequestStagedApprovalAction;
+use RoundlyConsulting\Approvals\ApprovalsManager;
 use RoundlyConsulting\Approvals\DataTransferObjects\ApprovalProgress;
 use RoundlyConsulting\Approvals\DataTransferObjects\StageDefinition;
 use RoundlyConsulting\Approvals\Enums\ApprovalRule;
@@ -16,7 +17,9 @@ use RoundlyConsulting\Approvals\Models\ApprovalRequestStage;
 use RoundlyConsulting\Approvals\Support\ApprovalRequestModelResolver;
 
 /**
- * Marks a model as a subject that needs sign-off from one or more approvers.
+ * Marks a model as a subject that needs sign-off from one or more approvers. Every
+ * method goes through {@see ApprovalsManager}, so `Approvals::fake()` records the
+ * requests it opens.
  *
  * @mixin Model
  */
@@ -40,18 +43,11 @@ trait RequiresApproval
         ApprovalRule $rule = ApprovalRule::Unanimous,
         ?int $quorum = null,
     ): ApprovalRequest {
-        $model = ApprovalRequestModelResolver::class();
-
-        $request = new $model;
-        $request->subject_id = $this->getKey();
-        $request->subject_type = $this->getMorphClass();
-        $request->rule = $rule;
-        $request->quorum = $quorum;
-        $request->required_approvers = count($approvers);
-        $request->status = ApprovalStatus::Pending;
-        $request->save();
-
-        return $request;
+        return app(ApprovalsManager::class)
+            ->request($this)
+            ->from($approvers)
+            ->rule($rule, $quorum)
+            ->open();
     }
 
     /**
@@ -64,12 +60,18 @@ trait RequiresApproval
     public function requestStagedApproval(
         array $stages,
         bool $rejectOnStageRejection = true,
+        ?CarbonInterface $expiresAt = null,
     ): ApprovalRequest {
-        return app(RequestStagedApprovalAction::class)->execute(
-            $this,
-            $stages,
-            $rejectOnStageRejection,
-        );
+        $pending = app(ApprovalsManager::class)
+            ->request($this)
+            ->stages($stages)
+            ->continueOnRejection(! $rejectOnStageRejection);
+
+        if ($expiresAt !== null) {
+            $pending->expiringAt($expiresAt);
+        }
+
+        return $pending->open();
     }
 
     /**
@@ -77,7 +79,7 @@ trait RequiresApproval
      */
     public function currentStage(): ?ApprovalRequestStage
     {
-        return $this->latestApprovalRequest()?->currentStage();
+        return app(ApprovalsManager::class)->currentStage($this);
     }
 
     /**
@@ -85,18 +87,12 @@ trait RequiresApproval
      */
     public function approvalProgress(): ?ApprovalProgress
     {
-        return $this->latestApprovalRequest()?->approvalProgress();
+        return app(ApprovalsManager::class)->progress($this);
     }
 
     public function currentApprovalStatus(): ApprovalStatus
     {
-        $request = $this->latestApprovalRequest();
-
-        if ($request === null) {
-            return ApprovalStatus::Pending;
-        }
-
-        return $request->status;
+        return app(ApprovalsManager::class)->status($this);
     }
 
     public function isApproved(): bool
@@ -107,10 +103,5 @@ trait RequiresApproval
     public function isPendingApproval(): bool
     {
         return $this->currentApprovalStatus() === ApprovalStatus::Pending;
-    }
-
-    private function latestApprovalRequest(): ?ApprovalRequest
-    {
-        return $this->approvalRequests()->latest('id')->first();
     }
 }

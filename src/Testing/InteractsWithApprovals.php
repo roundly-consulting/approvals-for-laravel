@@ -5,16 +5,15 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Approvals\Testing;
 
 use Illuminate\Database\Eloquent\Model;
-use RoundlyConsulting\Approvals\Actions\ApproveAction;
-use RoundlyConsulting\Approvals\Actions\RejectAction;
-use RoundlyConsulting\Approvals\DataTransferObjects\DecisionData;
+use RoundlyConsulting\Approvals\ApprovalsManager;
 
 /**
  * Opt-in testing ergonomics for host applications. Use it from a Pest/PHPUnit test case:
  *
  *     uses(RoundlyConsulting\Approvals\Testing\InteractsWithApprovals::class);
  *
- * It is intentionally framework-light and pulls in no runtime dependency on Pest.
+ * It is intentionally framework-light and pulls in no runtime dependency on Pest. The
+ * helpers go through the approvals manager, so they are recorded under Approvals::fake().
  */
 trait InteractsWithApprovals
 {
@@ -35,11 +34,11 @@ trait InteractsWithApprovals
      */
     public function approveAs(Model $approvable, ?string $reason = null, ?Model $actor = null): void
     {
-        app(ApproveAction::class)->execute(
-            $this->approver($actor),
-            $approvable,
-            DecisionData::approved($reason),
-        );
+        app(ApprovalsManager::class)
+            ->for($approvable)
+            ->as($this->approver($actor))
+            ->because($reason)
+            ->approve();
     }
 
     /**
@@ -47,11 +46,11 @@ trait InteractsWithApprovals
      */
     public function rejectAs(Model $approvable, ?string $reason = null, ?Model $actor = null): void
     {
-        app(RejectAction::class)->execute(
-            $this->approver($actor),
-            $approvable,
-            DecisionData::rejected($reason),
-        );
+        app(ApprovalsManager::class)
+            ->for($approvable)
+            ->as($this->approver($actor))
+            ->because($reason)
+            ->reject();
     }
 
     private function approver(?Model $actor): Model

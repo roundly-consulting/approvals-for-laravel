@@ -33,7 +33,7 @@ it('opens a flat request from a preset', function (): void {
     $b = ReviewerTestModel::create();
     $c = ReviewerTestModel::create();
 
-    $request = Approvals::for($budget)->workflow('payout')->request([$a, $b, $c]);
+    $request = Approvals::request($budget)->workflow('payout')->open([$a, $b, $c]);
 
     expect($request->rule)->toBe(ApprovalRule::Quorum)
         ->and($request->quorum)->toBe(2)
@@ -53,7 +53,7 @@ it('opens a staged request from a preset', function (): void {
     $eng2 = ReviewerTestModel::create();
     $product = ReviewerTestModel::create();
 
-    $request = Approvals::for($release)->workflow('release')->request([
+    $request = Approvals::request($release)->workflow('release')->open([
         [$eng1, $eng2],
         [$product],
     ]);
@@ -71,7 +71,7 @@ it('opens a staged request from a preset', function (): void {
 it('throws on an unknown preset', function (): void {
     $release = ReleaseTestModel::create();
 
-    expect(fn () => Approvals::for($release)->workflow('missing')->request())
+    expect(fn () => Approvals::request($release)->workflow('missing')->open())
         ->toThrow(UnknownWorkflowException::class);
 });
 
@@ -79,7 +79,7 @@ it('throws when a staged preset gets the wrong number of approver groups', funct
     $release = ReleaseTestModel::create();
     $a = ReviewerTestModel::create();
 
-    expect(fn () => Approvals::for($release)->workflow('release')->request([[$a]]))
+    expect(fn () => Approvals::request($release)->workflow('release')->open([[$a]]))
         ->toThrow(UnknownWorkflowException::class);
 });
 

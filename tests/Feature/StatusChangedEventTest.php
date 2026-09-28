@@ -58,7 +58,7 @@ it('fires the umbrella event when an approval expires', function (): void {
     $user = ReviewerTestModel::create();
     $deployment = DeploymentTestModel::create();
 
-    Approvals::for($deployment)->as($user)->expiresIn(1)->request();
+    Approvals::for($deployment)->as($user)->expiresIn(1)->ask();
 
     Event::fake();
 

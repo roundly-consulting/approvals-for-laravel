@@ -44,7 +44,7 @@ it('gates content with the pendingApproval directive', function (): void {
 
     expect(renderBlade($template, compact('deployment')))->toBe('');
 
-    Approvals::for($deployment)->as($actor)->request();
+    Approvals::for($deployment)->as($actor)->ask();
 
     expect(renderBlade($template, compact('deployment')))->toBe('P');
 });

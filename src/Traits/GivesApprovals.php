@@ -4,15 +4,10 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Approvals\Traits;
 
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
-use RoundlyConsulting\Approvals\Actions\ApproveAction;
-use RoundlyConsulting\Approvals\Actions\CancelApprovalAction;
-use RoundlyConsulting\Approvals\Actions\RejectAction;
-use RoundlyConsulting\Approvals\Actions\RevokeApprovalDelegationAction;
-use RoundlyConsulting\Approvals\Actions\ToggleApprovalAction;
-use RoundlyConsulting\Approvals\Builders\PendingDelegation;
-use RoundlyConsulting\Approvals\DataTransferObjects\DecisionData;
+use RoundlyConsulting\Approvals\ApprovalsManager;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Models\Approval;
 use RoundlyConsulting\Approvals\Models\ApprovalDelegation;
@@ -21,6 +16,8 @@ use RoundlyConsulting\Approvals\Support\ApprovalModelResolver;
 
 /**
  * Grants a model the ability to give approvals to other models (the actor side).
+ * Every state change goes through {@see ApprovalsManager}, so `Approvals::fake()`
+ * records it.
  *
  * @mixin Model
  */
@@ -66,17 +63,17 @@ trait GivesApprovals
 
     public function approve(Model $model, ?string $reason = null): Approval
     {
-        return app(ApproveAction::class)->execute($this, $model, DecisionData::approved($reason));
+        return app(ApprovalsManager::class)->for($model)->as($this)->because($reason)->approve();
     }
 
     public function reject(Model $model, ?string $reason = null): Approval
     {
-        return app(RejectAction::class)->execute($this, $model, DecisionData::rejected($reason));
+        return app(ApprovalsManager::class)->for($model)->as($this)->because($reason)->reject();
     }
 
     public function cancelApproval(Model $model, ?string $reason = null): ?Approval
     {
-        return app(CancelApprovalAction::class)->execute($this, $model, $reason);
+        return app(ApprovalsManager::class)->for($model)->as($this)->because($reason)->cancel();
     }
 
     /**
@@ -86,7 +83,7 @@ trait GivesApprovals
      */
     public function toggleApproval(Model $model): bool
     {
-        return app(ToggleApprovalAction::class)->execute($this, $model);
+        return app(ApprovalsManager::class)->for($model)->as($this)->toggle();
     }
 
     /**
@@ -100,12 +97,25 @@ trait GivesApprovals
     }
 
     /**
-     * Hand this approver's authority to another model. Returns a fluent builder so a
-     * time window can be attached: delegateApprovalsTo($x)->until($when).
+     * Hand this approver's authority to another model, optionally within a window.
+     * For the fluent form use `Approvals::delegations($this)->to($delegate)->…->grant()`.
      */
-    public function delegateApprovalsTo(Model $delegate): PendingDelegation
-    {
-        return new PendingDelegation($this, $delegate);
+    public function delegateApprovalsTo(
+        Model $delegate,
+        ?CarbonInterface $from = null,
+        ?CarbonInterface $until = null,
+    ): ApprovalDelegation {
+        $pending = app(ApprovalsManager::class)->delegations($this)->to($delegate);
+
+        if ($from !== null) {
+            $pending->from($from);
+        }
+
+        if ($until !== null) {
+            $pending->until($until);
+        }
+
+        return $pending->grant();
     }
 
     /**
@@ -115,6 +125,6 @@ trait GivesApprovals
      */
     public function revokeApprovalDelegation(?Model $delegate = null): int
     {
-        return app(RevokeApprovalDelegationAction::class)->execute($this, $delegate);
+        return app(ApprovalsManager::class)->delegations($this)->revoke($delegate);
     }
 }

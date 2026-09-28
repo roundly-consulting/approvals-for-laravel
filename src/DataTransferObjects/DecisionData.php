@@ -22,9 +22,9 @@ final readonly class DecisionData
         return new self(ApprovalStatus::Approved, $reason, $expiresAt, weight: $weight);
     }
 
-    public static function rejected(?string $reason = null): self
+    public static function rejected(?string $reason = null, ?int $weight = null): self
     {
-        return new self(ApprovalStatus::Rejected, $reason);
+        return new self(ApprovalStatus::Rejected, $reason, weight: $weight);
     }
 
     public static function pending(?CarbonInterface $expiresAt = null): self

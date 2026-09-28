@@ -9,6 +9,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Gate;
 use RoundlyConsulting\Approvals\Exceptions\UnauthorizedApprovalException;
 
+/**
+ * Shared building block of the decision actions.
+ *
+ * @internal
+ */
 trait AuthorizesDecisions
 {
     /**

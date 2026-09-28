@@ -6,12 +6,18 @@ namespace RoundlyConsulting\Approvals\Support;
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use RoundlyConsulting\Approvals\DataTransferObjects\ApprovalProgress;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Models\Approval;
+use RoundlyConsulting\Approvals\Models\ApprovalRequest;
+use RoundlyConsulting\Approvals\Models\ApprovalRequestStage;
 
 /**
- * Status checks that work against any approvable model without depending on the
- * HasApprovals trait being present. Used by the Blade directives.
+ * Status checks that work against any approvable or subject model without depending
+ * on the HasApprovals / RequiresApproval traits being present. Used by the manager's
+ * read methods, the builders and the Blade directives.
+ *
+ * @internal
  */
 final class ApprovalChecker
 {
@@ -37,6 +43,39 @@ final class ApprovalChecker
             ->whereMorphedTo('approvable', $approvable)
             ->where('status', ApprovalStatus::Pending)
             ->exists();
+    }
+
+    /**
+     * The subject's most recent approval request, if it has one.
+     */
+    public static function latestRequest(Model $subject): ?ApprovalRequest
+    {
+        $model = ApprovalRequestModelResolver::class();
+
+        $request = $model::query()
+            ->whereMorphedTo('subject', $subject)
+            ->latest('id')
+            ->first();
+
+        return $request instanceof ApprovalRequest ? $request : null;
+    }
+
+    /**
+     * The status of the subject's latest request; `Pending` when it has none.
+     */
+    public static function status(Model $subject): ApprovalStatus
+    {
+        return self::latestRequest($subject)->status ?? ApprovalStatus::Pending;
+    }
+
+    public static function progress(Model $subject): ?ApprovalProgress
+    {
+        return self::latestRequest($subject)?->approvalProgress();
+    }
+
+    public static function currentStage(Model $subject): ?ApprovalRequestStage
+    {
+        return self::latestRequest($subject)?->currentStage();
     }
 
     /**

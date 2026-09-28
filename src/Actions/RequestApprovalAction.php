@@ -24,6 +24,10 @@ final class RequestApprovalAction
     ): Approval {
         $data ??= DecisionData::pending();
 
+        if ($request instanceof ApprovalRequest) {
+            $this->ensureRequestBelongsTo($request, $approvable);
+        }
+
         $approval = $this->newApprovalFor($actor, $approvable, $request);
 
         if ($data->reason !== null) {

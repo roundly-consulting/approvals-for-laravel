@@ -9,7 +9,6 @@ use RoundlyConsulting\Approvals\Commands\ExpireApprovalsCommand;
 use RoundlyConsulting\Approvals\Facades\Approvals;
 use RoundlyConsulting\Approvals\Support\ApprovalChecker;
 use RoundlyConsulting\Approvals\Support\ApprovalDelegationModelResolver;
-use RoundlyConsulting\Approvals\Support\ApprovalManager;
 use RoundlyConsulting\Approvals\Support\ApprovalModelResolver;
 use RoundlyConsulting\Approvals\Support\ApprovalRequestModelResolver;
 use RoundlyConsulting\Approvals\Support\ApprovalRequestStageModelResolver;
@@ -55,7 +54,7 @@ final class ApprovalsServiceProvider extends PackageServiceProvider
     {
         parent::register();
 
-        $this->app->singleton(ApprovalManager::class);
+        $this->app->singleton(ApprovalsManager::class);
     }
 
     public function boot(): void

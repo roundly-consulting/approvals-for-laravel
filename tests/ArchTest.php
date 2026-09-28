@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use RoundlyConsulting\Approvals\ApprovalsManager;
 use RoundlyConsulting\Approvals\Exceptions\ApprovalsException;
 use RoundlyConsulting\Approvals\Models\Approval;
 use RoundlyConsulting\Approvals\Models\ApprovalDelegation;
@@ -18,8 +19,9 @@ ArchPresets::strictTypes('RoundlyConsulting\Approvals');
 
 /**
  * The deliberate extension points are exempt: the four models `approvals.*_model` invite
- * a host to subclass (pinned by the preset below instead), and ApprovalsException, the
- * base every approvals error extends so a host can catch them uniformly.
+ * a host to subclass (pinned by the preset below instead), ApprovalsException, the
+ * base every approvals error extends so a host can catch them uniformly, and
+ * ApprovalsManager, which ApprovalsFake extends so an injected manager gets the fake.
  */
 ArchPresets::finalByDefault('RoundlyConsulting\Approvals', [
     Approval::class,
@@ -27,6 +29,7 @@ ArchPresets::finalByDefault('RoundlyConsulting\Approvals', [
     ApprovalRequestStage::class,
     ApprovalDelegation::class,
     ApprovalsException::class,
+    ApprovalsManager::class,
 ]);
 
 /**
@@ -75,3 +78,10 @@ ArchPresets::morphColumnsUseTheSeam(__DIR__.'/../database/migrations');
 ArchPresets::runtimeRequireIsWhitelisted(__DIR__.'/../composer.json');
 
 ArchPresets::noDebuggingLeftovers();
+
+/**
+ * One path into the behaviour: GivesApprovals and RequiresApproval reach every action
+ * through ApprovalsManager, so Approvals::fake() records calls made through the model
+ * traits as well as through the facade.
+ */
+ArchPresets::modelsGoThroughTheFacade('RoundlyConsulting\Approvals');

@@ -6,17 +6,20 @@ namespace RoundlyConsulting\Approvals\Builders;
 
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Approvals\Actions\OpenWorkflowRequestAction;
+use RoundlyConsulting\Approvals\ApprovalsManager;
+use RoundlyConsulting\Approvals\Enums\ApprovalOperation;
 use RoundlyConsulting\Approvals\Models\ApprovalRequest;
-use RoundlyConsulting\Approvals\Support\WorkflowResolver;
 
 /**
- * Fluent builder for opening an approval request from a named workflow preset.
+ * Opens an approval request from a named workflow preset:
+ * `Approvals::request($invoice)->workflow('purchase')->open([$a, $b])`.
  */
-final class PendingWorkflowRequest
+final readonly class PendingWorkflowRequest
 {
     public function __construct(
-        private readonly Model $subject,
-        private readonly string $workflow,
+        private ApprovalsManager $manager,
+        private Model $subject,
+        private string $workflow,
     ) {}
 
     /**
@@ -25,12 +28,21 @@ final class PendingWorkflowRequest
      * For a flat preset pass a flat list of approvers. For a staged preset pass one
      * approver list per stage, in stage order.
      *
-     * @param  list<Model>|list<list<Model>>  $approvers
+     * @param  array<int, Model|list<Model>>  $approvers
      */
-    public function request(array $approvers = []): ApprovalRequest
+    public function open(array $approvers = []): ApprovalRequest
     {
-        $preset = app(WorkflowResolver::class)->resolve($this->workflow);
+        $preset = $this->manager->preset($this->workflow);
 
-        return app(OpenWorkflowRequestAction::class)->execute($this->subject, $preset, $approvers);
+        return $this->manager->perform(
+            ApprovalOperation::Open,
+            OpenWorkflowRequestAction::class,
+            fn (OpenWorkflowRequestAction $action): ApprovalRequest => $action->execute($this->subject, $preset, $approvers),
+            [
+                'subject' => $this->subject,
+                'staged' => $preset->isStaged(),
+                'workflow' => $this->workflow,
+            ],
+        );
     }
 }

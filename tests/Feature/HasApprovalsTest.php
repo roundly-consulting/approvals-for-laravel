@@ -53,7 +53,7 @@ it('lists pending approvals for an entity', function (): void {
     $deployment = DeploymentTestModel::create();
     $a = ActorTestModel::create();
 
-    Approvals::for($deployment)->as($a)->request();
+    Approvals::for($deployment)->as($a)->ask();
 
     expect($deployment->pendingApprovals())->toHaveCount(1);
 });

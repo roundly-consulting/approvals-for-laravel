@@ -8,54 +8,75 @@ use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Approvals\Actions\DelegateApprovalsAction;
+use RoundlyConsulting\Approvals\ApprovalsManager;
+use RoundlyConsulting\Approvals\Enums\ApprovalOperation;
 use RoundlyConsulting\Approvals\Models\ApprovalDelegation;
 
 /**
- * Fluent builder for delegating approval authority. The delegation row is created
- * immediately (open-ended) when the builder is constructed, so a bare
- * `delegateApprovalsTo($x)` works; chaining `->from()`/`->until()`/`->for()` narrows
- * the window in place.
+ * Collects a delegation's window and creates it on grant():
+ * `Approvals::delegations($boss)->to($deputy)->from($t1)->until($t2)->grant()`.
+ *
+ * Nothing is written and no event fires until grant(), so the delegation is
+ * validated (self-delegation, a window ending before it starts) and announced with
+ * its final window.
  */
 final class PendingDelegation
 {
-    private readonly ApprovalDelegation $delegation;
+    private ?CarbonInterface $startsAt = null;
 
-    public function __construct(Model $delegator, Model $delegate)
-    {
-        $this->delegation = app(DelegateApprovalsAction::class)->execute($delegator, $delegate);
-    }
+    private ?CarbonInterface $endsAt = null;
+
+    private ?int $duration = null;
+
+    public function __construct(
+        private readonly ApprovalsManager $manager,
+        private readonly Model $delegator,
+        private readonly Model $delegate,
+    ) {}
 
     public function from(CarbonInterface $when): self
     {
-        $this->delegation->starts_at = CarbonImmutable::instance($when->toDateTimeImmutable());
-        $this->delegation->save();
+        $this->startsAt = $when;
 
         return $this;
     }
 
     public function until(CarbonInterface $when): self
     {
-        $this->delegation->ends_at = CarbonImmutable::instance($when->toDateTimeImmutable());
-        $this->delegation->save();
+        $this->endsAt = $when;
+        $this->duration = null;
 
         return $this;
     }
 
+    /**
+     * Let the delegation last this many seconds from its start (now when no from()).
+     */
     public function for(int $seconds): self
     {
-        $this->delegation->ends_at = CarbonImmutable::now()->addSeconds($seconds);
-        $this->delegation->save();
+        $this->duration = $seconds;
+        $this->endsAt = null;
 
         return $this;
     }
 
-    public function save(): ApprovalDelegation
+    public function grant(): ApprovalDelegation
     {
-        return $this->delegation;
-    }
+        $startsAt = $this->startsAt;
+        $endsAt = $this->duration === null
+            ? $this->endsAt
+            : CarbonImmutable::instance(($startsAt ?? CarbonImmutable::now())->toDateTimeImmutable())->addSeconds($this->duration);
 
-    public function delegation(): ApprovalDelegation
-    {
-        return $this->delegation;
+        return $this->manager->perform(
+            ApprovalOperation::Delegate,
+            DelegateApprovalsAction::class,
+            fn (DelegateApprovalsAction $action): ApprovalDelegation => $action->execute($this->delegator, $this->delegate, $startsAt, $endsAt),
+            [
+                'delegator' => $this->delegator,
+                'delegate' => $this->delegate,
+                'starts_at' => $startsAt,
+                'ends_at' => $endsAt,
+            ],
+        );
     }
 }

@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-use RoundlyConsulting\Approvals\Support\ApprovalManager;
+use RoundlyConsulting\Approvals\ApprovalsManager;
 
 if (! function_exists('approvals')) {
     /**
      * Resolve the approvals manager from the container.
      */
-    function approvals(): ApprovalManager
+    function approvals(): ApprovalsManager
     {
-        return app(ApprovalManager::class);
+        return app(ApprovalsManager::class);
     }
 }

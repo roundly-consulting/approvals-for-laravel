@@ -39,7 +39,7 @@ it('honors a time-windowed delegation and stops after it ends', function (): voi
     $assistant = ReviewerTestModel::create();
     $deployment = DeploymentTestModel::create();
 
-    $manager->delegateApprovalsTo($assistant)->until(CarbonImmutable::now()->addHour());
+    $manager->delegateApprovalsTo($assistant, until: CarbonImmutable::now()->addHour());
 
     // After the window the delegate decides as itself again.
     CarbonImmutable::setTestNow('2026-06-19 14:00:00');
@@ -57,7 +57,7 @@ it('ignores a not-yet-started delegation', function (): void {
     $assistant = ReviewerTestModel::create();
     $deployment = DeploymentTestModel::create();
 
-    $manager->delegateApprovalsTo($assistant)->from(CarbonImmutable::now()->addHour());
+    $manager->delegateApprovalsTo($assistant, from: CarbonImmutable::now()->addHour());
 
     $approval = $assistant->approve($deployment);
 
@@ -103,7 +103,7 @@ it('delegates through the facade', function (): void {
     $manager = ReviewerTestModel::create();
     $assistant = ReviewerTestModel::create();
 
-    $delegation = Approvals::delegate($manager, $assistant)->for(3600)->save();
+    $delegation = Approvals::delegations($manager)->to($assistant)->for(3600)->grant();
 
     expect($delegation->isActiveAt())->toBeTrue()
         ->and($delegation->ends_at)->not->toBeNull();

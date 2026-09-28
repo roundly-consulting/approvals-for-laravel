@@ -12,21 +12,34 @@ use RoundlyConsulting\Approvals\Actions\CancelApprovalAction;
 use RoundlyConsulting\Approvals\Actions\RejectAction;
 use RoundlyConsulting\Approvals\Actions\RequestApprovalAction;
 use RoundlyConsulting\Approvals\Actions\ToggleApprovalAction;
+use RoundlyConsulting\Approvals\ApprovalsManager;
 use RoundlyConsulting\Approvals\DataTransferObjects\DecisionData;
-use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
+use RoundlyConsulting\Approvals\Enums\ApprovalOperation;
 use RoundlyConsulting\Approvals\Exceptions\IncompletePendingApprovalException;
 use RoundlyConsulting\Approvals\Models\Approval;
-use RoundlyConsulting\Approvals\Support\ApprovalModelResolver;
+use RoundlyConsulting\Approvals\Models\ApprovalRequest;
+use RoundlyConsulting\Approvals\Support\ApprovalChecker;
 
+/**
+ * One actor's decision on one approvable: `Approvals::for($invoice)->as($user)->approve()`.
+ */
 final class PendingApproval
 {
     private ?Model $actor = null;
 
     private ?Model $approvable = null;
 
+    private ?ApprovalRequest $request = null;
+
     private ?string $reason = null;
 
+    private ?int $weight = null;
+
     private ?CarbonInterface $expiresAt = null;
+
+    public function __construct(
+        private readonly ApprovalsManager $manager,
+    ) {}
 
     public function as(Model $actor): self
     {
@@ -42,9 +55,30 @@ final class PendingApproval
         return $this;
     }
 
-    public function because(string $reason): self
+    /**
+     * Pin the decision to this request instead of the approvable's latest open one.
+     * The request must belong to the approvable.
+     */
+    public function within(ApprovalRequest $request): self
+    {
+        $this->request = $request;
+
+        return $this;
+    }
+
+    public function because(?string $reason): self
     {
         $this->reason = $reason;
+
+        return $this;
+    }
+
+    /**
+     * Override the weight this decision carries towards a quorum/weighted threshold.
+     */
+    public function weight(int $weight): self
+    {
+        $this->weight = $weight;
 
         return $this;
     }
@@ -65,63 +99,110 @@ final class PendingApproval
 
     public function approve(): Approval
     {
-        return app(ApproveAction::class)->execute(
-            $this->actor(),
-            $this->approvable(),
-            DecisionData::approved($this->reason, $this->expiresAt),
+        $actor = $this->actor();
+        $approvable = $this->approvable();
+        $data = DecisionData::approved($this->reason, $this->expiresAt, $this->weight);
+
+        return $this->manager->perform(
+            ApprovalOperation::Approve,
+            ApproveAction::class,
+            fn (ApproveAction $action): Approval => $action->execute($actor, $approvable, $data, $this->request),
+            $this->context($actor, $approvable),
         );
     }
 
     public function reject(): Approval
     {
-        return app(RejectAction::class)->execute(
-            $this->actor(),
-            $this->approvable(),
-            DecisionData::rejected($this->reason),
-        );
-    }
+        $actor = $this->actor();
+        $approvable = $this->approvable();
+        $data = DecisionData::rejected($this->reason, $this->weight);
 
-    public function request(): Approval
-    {
-        return app(RequestApprovalAction::class)->execute(
-            $this->actor(),
-            $this->approvable(),
-            DecisionData::pending($this->expiresAt),
+        return $this->manager->perform(
+            ApprovalOperation::Reject,
+            RejectAction::class,
+            fn (RejectAction $action): Approval => $action->execute($actor, $approvable, $data, $this->request),
+            $this->context($actor, $approvable),
         );
-    }
-
-    public function cancel(): ?Approval
-    {
-        return app(CancelApprovalAction::class)->execute(
-            $this->actor(),
-            $this->approvable(),
-            $this->reason,
-        );
-    }
-
-    public function toggle(): bool
-    {
-        return app(ToggleApprovalAction::class)->execute($this->actor(), $this->approvable());
     }
 
     /**
-     * Switch to opening a request from a named workflow preset for the approvable
-     * (treated as the request subject).
+     * Ask the actor for a decision: record a pending approval for the pair.
      */
-    public function workflow(string $name): PendingWorkflowRequest
+    public function ask(): Approval
     {
-        return new PendingWorkflowRequest($this->approvable(), $name);
+        $actor = $this->actor();
+        $approvable = $this->approvable();
+        $data = DecisionData::pending($this->expiresAt);
+
+        return $this->manager->perform(
+            ApprovalOperation::Ask,
+            RequestApprovalAction::class,
+            fn (RequestApprovalAction $action): Approval => $action->execute($actor, $approvable, $data, $this->request),
+            $this->context($actor, $approvable),
+        );
+    }
+
+    /**
+     * Withdraw the actor's active decision, if it has one.
+     */
+    public function cancel(): ?Approval
+    {
+        $actor = $this->actor();
+        $approvable = $this->approvable();
+
+        return $this->manager->perform(
+            ApprovalOperation::Cancel,
+            CancelApprovalAction::class,
+            fn (CancelApprovalAction $action): ?Approval => $action->execute($actor, $approvable, $this->reason),
+            $this->context($actor, $approvable),
+        );
+    }
+
+    /**
+     * @return bool true when the approval was created, false when it was removed
+     */
+    public function toggle(): bool
+    {
+        $actor = $this->actor();
+        $approvable = $this->approvable();
+
+        return $this->manager->perform(
+            ApprovalOperation::Toggle,
+            ToggleApprovalAction::class,
+            static fn (ToggleApprovalAction $action): bool => $action->execute($actor, $approvable),
+            $this->context($actor, $approvable),
+        );
     }
 
     public function isApproved(): bool
     {
-        $model = ApprovalModelResolver::class();
+        return ApprovalChecker::isApprovedBy($this->approvable(), $this->actor());
+    }
 
-        return $model::query()
-            ->whereMorphedTo('actor', $this->actor())
-            ->whereMorphedTo('approvable', $this->approvable())
-            ->where('status', ApprovalStatus::Approved)
-            ->exists();
+    public function isRejected(): bool
+    {
+        return ApprovalChecker::isRejectedBy($this->approvable(), $this->actor());
+    }
+
+    /**
+     * Whether the approvable has any pending decision (from any actor).
+     */
+    public function hasPending(): bool
+    {
+        return ApprovalChecker::hasPending($this->approvable());
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function context(Model $actor, Model $approvable): array
+    {
+        return [
+            'actor' => $actor,
+            'approvable' => $approvable,
+            'request' => $this->request,
+            'reason' => $this->reason,
+        ];
     }
 
     private function actor(): Model

@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Approvals\Actions\Concerns;
 
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
+use RoundlyConsulting\Approvals\Exceptions\InvalidApprovalRequestException;
 use RoundlyConsulting\Approvals\Models\Approval;
 use RoundlyConsulting\Approvals\Models\ApprovalRequest;
 use RoundlyConsulting\Approvals\Models\ApprovalRequestStage;
@@ -14,6 +15,11 @@ use RoundlyConsulting\Approvals\Support\ApprovalRequestModelResolver;
 use RoundlyConsulting\Approvals\Support\DelegationResolver;
 use RoundlyConsulting\Approvals\Support\WeightResolver;
 
+/**
+ * Shared building block of the decision actions.
+ *
+ * @internal
+ */
 trait ResolvesApproval
 {
     /**
@@ -60,12 +66,15 @@ trait ResolvesApproval
     }
 
     /**
-     * Resolve the request to attach a decision to: the one passed explicitly, or the
-     * latest open request whose subject is the approvable.
+     * Resolve the request to attach a decision to: the one passed explicitly (which
+     * must belong to the approvable), or the latest open request whose subject is the
+     * approvable.
      */
     protected function requestFor(Model $approvable, ?ApprovalRequest $request): ?ApprovalRequest
     {
         if ($request instanceof ApprovalRequest) {
+            $this->ensureRequestBelongsTo($request, $approvable);
+
             return $request;
         }
 
@@ -78,6 +87,24 @@ trait ResolvesApproval
             ->first();
 
         return $found instanceof ApprovalRequest ? $found : null;
+    }
+
+    /**
+     * Refuse a request whose subject is not the approvable: a decision on one model
+     * must never count towards another model's request.
+     */
+    protected function ensureRequestBelongsTo(ApprovalRequest $request, Model $approvable): void
+    {
+        $key = $approvable->getKey();
+
+        $belongs = $request->subject_type === $approvable->getMorphClass()
+            && $request->subject_id !== null
+            && is_scalar($key)
+            && (string) $request->subject_id === (string) $key;
+
+        if (! $belongs) {
+            throw InvalidApprovalRequestException::foreignSubject($request, $approvable);
+        }
     }
 
     /**

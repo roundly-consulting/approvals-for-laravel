@@ -89,7 +89,7 @@ it('honours a host delegation model through the delegation flow', function (): v
         $delegator = ActorTestModel::query()->create();
         $delegate = ActorTestModel::query()->create();
 
-        $delegation = $delegator->delegateApprovalsTo($delegate)->save();
+        $delegation = $delegator->delegateApprovalsTo($delegate);
 
         return [
             $delegation,

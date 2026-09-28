@@ -148,3 +148,17 @@ it('attaches decisions to the open stage', function (): void {
 
     expect($stage->fresh()->decisions()->count())->toBe(1);
 });
+
+it('stamps an expiry on a staged request opened through the trait', function (): void {
+    $release = ReleaseTestModel::create();
+    $expires = now()->addWeek()->startOfSecond();
+
+    $request = $release->requestStagedApproval(
+        [new StageDefinition([ReviewerTestModel::create()], ApprovalRule::Any)],
+        rejectOnStageRejection: false,
+        expiresAt: $expires,
+    );
+
+    expect($request->expires_at?->equalTo($expires))->toBeTrue()
+        ->and($request->reject_on_stage_rejection)->toBeFalse();
+});
