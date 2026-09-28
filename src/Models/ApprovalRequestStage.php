@@ -97,6 +97,27 @@ class ApprovalRequestStage extends Model
         return $this->status === ApprovalStatus::Pending && $this->opened_at !== null;
     }
 
+    /**
+     * Settle the stage as approved or rejected — only if it is still pending. Two
+     * decisions resolving the request at once each hold their own copy of the stage;
+     * the conditional update lets exactly one of them settle it (and announce it).
+     *
+     * @return bool whether this call settled the stage
+     */
+    public function settle(ApprovalStatus $outcome): bool
+    {
+        $now = CarbonImmutable::now();
+
+        $settled = $this->newQuery()
+            ->whereKey($this->getKey())
+            ->where('status', ApprovalStatus::Pending->value)
+            ->update(['status' => $outcome->value, 'cleared_at' => $now]) === 1;
+
+        $this->refresh();
+
+        return $settled;
+    }
+
     public function markOpened(): static
     {
         if ($this->opened_at === null) {

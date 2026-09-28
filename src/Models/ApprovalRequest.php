@@ -193,11 +193,12 @@ class ApprovalRequest extends Model
                 return $this;
             }
 
-            if ($outcome === ApprovalStatus::Rejected) {
-                $stage->status = ApprovalStatus::Rejected;
-                $stage->cleared_at = CarbonImmutable::now();
-                $stage->save();
+            // A concurrent resolution settled this stage first; it carries on from here.
+            if (! $stage->settle($outcome)) {
+                return $this;
+            }
 
+            if ($outcome === ApprovalStatus::Rejected) {
                 if ($this->reject_on_stage_rejection) {
                     $this->finalize(ApprovalStatus::Rejected);
 
@@ -206,10 +207,6 @@ class ApprovalRequest extends Model
 
                 continue;
             }
-
-            $stage->status = ApprovalStatus::Approved;
-            $stage->cleared_at = CarbonImmutable::now();
-            $stage->save();
 
             ApprovalStageCleared::dispatch($stage);
 
@@ -304,13 +301,26 @@ class ApprovalRequest extends Model
         );
     }
 
+    /**
+     * Move the request from pending to its outcome and announce it — only if it is still
+     * pending. Two decisions resolving at once each hold their own copy of the request;
+     * the conditional update lets exactly one of them finalize it, so it resolves (and
+     * fires its events) once.
+     */
     private function finalize(ApprovalStatus $outcome): void
     {
         $from = $this->status;
 
-        $this->status = $outcome;
-        $this->resolved_at = CarbonImmutable::now();
-        $this->save();
+        $finalized = $this->newQuery()
+            ->whereKey($this->getKey())
+            ->where('status', ApprovalStatus::Pending->value)
+            ->update(['status' => $outcome->value, 'resolved_at' => CarbonImmutable::now()]) === 1;
+
+        $this->refresh();
+
+        if (! $finalized) {
+            return;
+        }
 
         ApprovalRequestResolved::dispatch($this);
         ApprovalStatusChanged::dispatch($this, $from, $outcome);
