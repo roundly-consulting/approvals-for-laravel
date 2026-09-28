@@ -105,6 +105,23 @@ class ApprovalDelegation extends Model
             });
     }
 
+    /**
+     * Delegations that are in force now or scheduled to start later: not revoked and not
+     * yet ended. This is what "revoke" has to reach — a delegation scheduled for next week
+     * that survives a "revoke all" would silently hand the authority over anyway.
+     *
+     * @param  Builder<ApprovalDelegation>  $query
+     */
+    public function scopeInForceOrScheduled(Builder $query, ?CarbonInterface $moment = null): void
+    {
+        $moment ??= CarbonImmutable::now();
+
+        $query->whereNull('revoked_at')
+            ->where(function (Builder $q) use ($moment): void {
+                $q->whereNull('ends_at')->orWhere('ends_at', '>=', $moment);
+            });
+    }
+
     public function revoke(?CarbonInterface $at = null): static
     {
         $this->revoked_at = $at === null

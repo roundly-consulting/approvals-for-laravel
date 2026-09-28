@@ -164,3 +164,38 @@ it('counts a delegated decision toward a request as the delegator', function ():
 
     expect($deployment->approvalCount())->toBe(1);
 });
+
+it('revokes a scheduled delegation along with the active ones', function (?bool $onlyDeputy): void {
+    CarbonImmutable::setTestNow('2026-09-28 12:00:00');
+
+    $boss = ReviewerTestModel::create();
+    $deputy = ReviewerTestModel::create();
+
+    $boss->delegateApprovalsTo($deputy, from: CarbonImmutable::now()->addDay());
+
+    $revoked = $onlyDeputy === true
+        ? $boss->revokeApprovalDelegation($deputy)
+        : $boss->revokeApprovalDelegation();
+
+    CarbonImmutable::setTestNow('2026-09-30 12:00:00');
+
+    expect($revoked)->toBe(1)
+        ->and(Approvals::delegationFor($deputy))->toBeNull()
+        ->and(Approvals::delegations($boss)->active())->toHaveCount(0);
+})->with(['all' => [null], 'one delegate' => [true]]);
+
+it('leaves an already-ended delegation alone when revoking', function (): void {
+    CarbonImmutable::setTestNow('2026-09-28 12:00:00');
+
+    $boss = ReviewerTestModel::create();
+    $deputy = ReviewerTestModel::create();
+
+    $ended = $boss->delegateApprovalsTo(
+        $deputy,
+        from: CarbonImmutable::now()->subWeek(),
+        until: CarbonImmutable::now()->subDay(),
+    );
+
+    expect($boss->revokeApprovalDelegation())->toBe(0)
+        ->and($ended->fresh()?->revoked_at)->toBeNull();
+});

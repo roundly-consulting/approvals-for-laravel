@@ -125,7 +125,8 @@ trait GivesApprovals
     }
 
     /**
-     * Revoke this approver's active delegations, optionally limited to one delegate.
+     * Revoke this approver's delegations that are in force or scheduled (not yet ended),
+     * optionally limited to one delegate.
      *
      * @return int the number of delegations revoked
      */

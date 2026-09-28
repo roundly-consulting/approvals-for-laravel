@@ -11,8 +11,8 @@ use RoundlyConsulting\Approvals\Support\ApprovalDelegationModelResolver;
 final class RevokeApprovalDelegationAction
 {
     /**
-     * Revoke every active delegation the delegator currently holds, optionally limited
-     * to a single delegate.
+     * Revoke every delegation the delegator has in force or scheduled (not yet ended),
+     * optionally limited to a single delegate.
      *
      * @return int the number of delegations revoked
      */
@@ -22,7 +22,7 @@ final class RevokeApprovalDelegationAction
 
         $query = $model::query()
             ->whereMorphedTo('delegator', $delegator)
-            ->active();
+            ->inForceOrScheduled();
 
         if ($delegate instanceof Model) {
             $query->whereMorphedTo('delegate', $delegate);

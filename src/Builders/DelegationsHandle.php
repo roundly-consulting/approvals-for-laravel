@@ -33,7 +33,8 @@ final readonly class DelegationsHandle
     }
 
     /**
-     * Revoke the approver's active delegations, optionally only those to `$delegate`.
+     * Revoke the approver's delegations that are in force or scheduled (not yet ended),
+     * optionally only those to `$delegate`.
      *
      * @return int the number of delegations revoked
      */
