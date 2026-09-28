@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Approvals\Actions;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
+use RoundlyConsulting\Approvals\Actions\Concerns\AuthorizesDecisions;
 use RoundlyConsulting\Approvals\Actions\Concerns\ResolvesApproval;
 use RoundlyConsulting\Approvals\DataTransferObjects\DecisionData;
 use RoundlyConsulting\Approvals\Events\ApprovalRequested;
@@ -14,6 +15,7 @@ use RoundlyConsulting\Approvals\Models\ApprovalRequest;
 
 final class RequestApprovalAction
 {
+    use AuthorizesDecisions;
     use ResolvesApproval;
 
     public function execute(
@@ -22,6 +24,9 @@ final class RequestApprovalAction
         ?DecisionData $data = null,
         ?ApprovalRequest $request = null,
     ): Approval {
+        // The asked actor must be one who may decide on the approvable.
+        $this->authorizeDecision($actor, $approvable);
+
         $data ??= DecisionData::pending();
 
         if ($request instanceof ApprovalRequest) {

@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Approvals\Actions;
 
 use Illuminate\Database\Eloquent\Model;
+use RoundlyConsulting\Approvals\Actions\Concerns\AuthorizesDecisions;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Events\ApprovalToggled;
 use RoundlyConsulting\Approvals\Support\ApprovalModelResolver;
 
 final class ToggleApprovalAction
 {
+    use AuthorizesDecisions;
+
     /**
      * Toggle the actor's approval of the approvable: a created row is approved, toggling again
      * soft-deletes it.
@@ -19,6 +22,8 @@ final class ToggleApprovalAction
      */
     public function execute(Model $actor, Model $approvable): bool
     {
+        $this->authorizeDecision($actor, $approvable);
+
         $model = ApprovalModelResolver::class();
 
         $approval = $model::query()

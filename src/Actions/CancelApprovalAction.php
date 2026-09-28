@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Approvals\Actions;
 
 use Illuminate\Database\Eloquent\Model;
+use RoundlyConsulting\Approvals\Actions\Concerns\AuthorizesDecisions;
 use RoundlyConsulting\Approvals\Actions\Concerns\ResolvesApproval;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Events\ApprovalCancelled;
@@ -14,6 +15,7 @@ use RoundlyConsulting\Approvals\Support\ApprovalModelResolver;
 
 final class CancelApprovalAction
 {
+    use AuthorizesDecisions;
     use ResolvesApproval;
 
     /**
@@ -21,6 +23,9 @@ final class CancelApprovalAction
      */
     public function execute(Model $actor, Model $approvable, ?string $reason = null): ?Approval
     {
+        // Withdrawing a decision changes the outcome as much as making one.
+        $this->authorizeDecision($actor, $approvable);
+
         $model = ApprovalModelResolver::class();
 
         $approval = $model::query()

@@ -8,6 +8,7 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Gate;
 use RoundlyConsulting\Approvals\Exceptions\UnauthorizedApprovalException;
+use RoundlyConsulting\PackageToolkit\Support\Config;
 
 /**
  * Shared building block of the decision actions.
@@ -18,10 +19,13 @@ trait AuthorizesDecisions
 {
     /**
      * When authorization is enabled, ensure the actor may decide on the approvable.
+     *
+     * The flag is env-backed, so it arrives as a string ('1', 'true', 'yes', 'on');
+     * comparing it `=== true` failed open for every one of them.
      */
     protected function authorizeDecision(Model $actor, Model $approvable): void
     {
-        if (config('approvals.authorization.enabled') !== true) {
+        if (! Config::boolean('approvals.authorization.enabled')) {
             return;
         }
 

@@ -119,6 +119,14 @@ it('reports authorization and expiry state in about', function (): void {
         ->assertExitCode(0);
 });
 
+it('reports an env-string authorization flag as enforced in about', function (): void {
+    config()->set('approvals.authorization.enabled', '1');
+
+    $this->artisan('about --only=approvals')
+        ->expectsOutputToContain('ENFORCED')
+        ->assertExitCode(0);
+});
+
 it('reports an unconfigured expiry as never', function (): void {
     $this->artisan('about --only=approvals')
         ->expectsOutputToContain('NEVER')

@@ -16,6 +16,7 @@ use RoundlyConsulting\PackageToolkit\Concerns\RegistersBladeDirectives;
 use RoundlyConsulting\PackageToolkit\Concerns\RegistersBlueprintMacros;
 use RoundlyConsulting\PackageToolkit\Package;
 use RoundlyConsulting\PackageToolkit\PackageServiceProvider;
+use RoundlyConsulting\PackageToolkit\Support\Config;
 
 final class ApprovalsServiceProvider extends PackageServiceProvider
 {
@@ -38,7 +39,7 @@ final class ApprovalsServiceProvider extends PackageServiceProvider
                 'Stage model' => class_basename(ApprovalRequestStageModelResolver::class()),
                 'Delegation model' => class_basename(ApprovalDelegationModelResolver::class()),
                 'Default status' => self::defaultStatus(),
-                'Authorization' => config('approvals.authorization.enabled') === true ? 'ENFORCED' : 'OFF',
+                'Authorization' => Config::boolean('approvals.authorization.enabled') ? 'ENFORCED' : 'OFF',
                 // The gate ability is part of the host's own authorization
                 // vocabulary, so the section reports whether one was configured —
                 // never the ability's name.
