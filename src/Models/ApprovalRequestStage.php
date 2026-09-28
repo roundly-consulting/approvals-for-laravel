@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use RoundlyConsulting\Approvals\Database\Factories\ApprovalRequestStageFactory;
+use RoundlyConsulting\Approvals\DataTransferObjects\NamedApprover;
 use RoundlyConsulting\Approvals\Enums\ApprovalRule;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Support\ApprovalModelResolver;
@@ -25,6 +26,7 @@ use RoundlyConsulting\Approvals\Support\ApprovalRequestModelResolver;
  * @property ApprovalRule $rule
  * @property int|null $quorum
  * @property int|null $required_approvers
+ * @property array<array-key, mixed>|null $approvers
  * @property ApprovalStatus $status
  * @property CarbonImmutable|null $opened_at
  * @property CarbonImmutable|null $cleared_at
@@ -49,6 +51,7 @@ class ApprovalRequestStage extends Model
         return [
             'rule' => ApprovalRule::class,
             'status' => ApprovalStatus::class,
+            'approvers' => 'array',
             'position' => 'integer',
             'opened_at' => 'immutable_datetime',
             'cleared_at' => 'immutable_datetime',
@@ -71,6 +74,22 @@ class ApprovalRequestStage extends Model
     public function decisions(): HasMany
     {
         return $this->hasMany(ApprovalModelResolver::class(), 'approval_request_stage_id');
+    }
+
+    /**
+     * The approvers this stage names. Empty when it was opened without names — then any
+     * approver may decide it.
+     *
+     * @return list<NamedApprover>
+     */
+    public function namedApprovers(): array
+    {
+        return NamedApprover::listFrom($this->approvers);
+    }
+
+    public function hasNamedApprover(Model $model): bool
+    {
+        return NamedApprover::listIncludes($this->namedApprovers(), $model);
     }
 
     public function isOpen(): bool

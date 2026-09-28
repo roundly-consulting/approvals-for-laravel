@@ -77,6 +77,7 @@ final readonly class OpenWorkflowRequestAction
                 rule: $stage->rule,
                 quorum: $stage->quorum,
                 name: $stage->name,
+                requiredApprovers: $stage->requiredApprovers,
             );
         }
 

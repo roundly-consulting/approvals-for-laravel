@@ -29,9 +29,10 @@ it('opens a pending flat request for the subject', function (): void {
 it('honours rule, quorum, expiry, headcount override and workflow name', function (): void {
     $expires = CarbonImmutable::now()->addDay()->startOfSecond();
 
+    // No names: an open request, whose headcount only the override can state.
     $request = app(OpenApprovalRequestAction::class)->execute(new ApprovalRequestData(
         subject: ReleaseTestModel::create(),
-        approvers: [ReviewerTestModel::create()],
+        approvers: [],
         rule: ApprovalRule::Weighted,
         quorum: 5,
         expiresAt: $expires,

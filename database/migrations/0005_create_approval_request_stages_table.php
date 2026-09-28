@@ -19,6 +19,10 @@ return new class extends Migration
             $table->string('rule');
             $table->unsignedInteger('quorum')->nullable();
             $table->unsignedInteger('required_approvers')->nullable();
+
+            // The stage's named approvers ({type, id, weight} each); NULL for a stage
+            // opened without names, which any approver may decide.
+            $table->json('approvers')->nullable();
             $table->string('status')->default(ApprovalStatus::Pending->value)->index();
             $table->timestamp('opened_at')->nullable();
             $table->timestamp('cleared_at')->nullable();

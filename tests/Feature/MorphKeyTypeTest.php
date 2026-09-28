@@ -98,7 +98,7 @@ it('emits the frozen bigint morph schema byte-for-byte', function (): void {
     expect(emittedApprovalsTable('approval_requests'))->toBe(
         'CREATE TABLE "approval_requests" ("id" integer primary key autoincrement not null, '
         .'"subject_type" varchar, "subject_id" integer, "rule" varchar not null, '
-        .'"quorum" integer, "required_approvers" integer, '
+        .'"quorum" integer, "required_approvers" integer, "approvers" text, '
         .'"status" varchar not null default \'pending\', "resolved_at" datetime, '
         .'"expires_at" datetime, "created_at" datetime, "updated_at" datetime, '
         .'"deleted_at" datetime, "staged" tinyint(1) not null default \'0\', '

@@ -20,6 +20,10 @@ return new class extends Migration
             $table->string('rule');
             $table->unsignedInteger('quorum')->nullable();
             $table->unsignedInteger('required_approvers')->nullable();
+
+            // The named approvers of a flat request ({type, id, weight} each); NULL for a
+            // request opened without names, which any approver may decide.
+            $table->json('approvers')->nullable();
             $table->string('status')->default(ApprovalStatus::Pending->value)->index();
             $table->timestamp('resolved_at')->nullable();
             $table->timestamp('expires_at')->nullable()->index();

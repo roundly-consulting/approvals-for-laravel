@@ -9,10 +9,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\UniqueConstraintViolationException;
 use RoundlyConsulting\Approvals\DataTransferObjects\DecisionData;
 use RoundlyConsulting\Approvals\DataTransferObjects\DecisionTarget;
+use RoundlyConsulting\Approvals\DataTransferObjects\NamedApprover;
 use RoundlyConsulting\Approvals\DataTransferObjects\RecordedDecision;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Events\ApprovalStatusChanged;
 use RoundlyConsulting\Approvals\Exceptions\InvalidApprovalRequestException;
+use RoundlyConsulting\Approvals\Exceptions\UnauthorizedApprovalException;
 use RoundlyConsulting\Approvals\Models\Approval;
 use RoundlyConsulting\Approvals\Models\ApprovalRequest;
 use RoundlyConsulting\Approvals\Models\ApprovalRequestStage;
@@ -34,6 +36,13 @@ trait ResolvesApproval
      * the approvable's latest open request), the stage open on it, and whose authority
      * the actor decides with.
      *
+     * When the request (or its open stage) names its approvers, only they may decide:
+     * a named approver decides as itself — even when it also stands in for someone —
+     * and anyone else only as the delegate of a named approver. Anyone else is refused
+     * with an UnauthorizedApprovalException. A request opened without names keeps the
+     * open semantics: any actor counts, and an active delegation makes the actor decide
+     * for its delegator.
+     *
      * `$actsForOthers` is false for an ask(): asking someone for a decision is addressed
      * to that model itself, never to whoever it may be standing in for.
      */
@@ -49,10 +58,30 @@ trait ResolvesApproval
             ? $request->currentStage()
             : null;
 
-        $decidedBy = null;
-        $effectiveActor = $actsForOthers ? $this->effectiveActor($actor, $decidedBy) : $actor;
+        $named = $request instanceof ApprovalRequest ? $request->approversFor($stage) : [];
 
-        return new DecisionTarget($effectiveActor, $decidedBy, $approvable, $request, $stage);
+        if (! $request instanceof ApprovalRequest || $named === []) {
+            $decidedBy = null;
+            $effectiveActor = $actsForOthers ? $this->effectiveActor($actor, $decidedBy) : $actor;
+
+            return new DecisionTarget($effectiveActor, $decidedBy, $approvable, $request, $stage);
+        }
+
+        if (NamedApprover::listIncludes($named, $actor)) {
+            return new DecisionTarget($actor, null, $approvable, $request, $stage);
+        }
+
+        if ($actsForOthers) {
+            foreach (app(DelegationResolver::class)->activeDelegationsTo($actor) as $delegation) {
+                $delegator = $delegation->delegator;
+
+                if ($delegator instanceof Model && NamedApprover::listIncludes($named, $delegator)) {
+                    return new DecisionTarget($delegator, $actor, $approvable, $request, $stage);
+                }
+            }
+        }
+
+        throw UnauthorizedApprovalException::notAnApprover($actor, $request, $stage);
     }
 
     /**

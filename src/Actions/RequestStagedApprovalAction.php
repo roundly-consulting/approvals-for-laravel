@@ -14,11 +14,14 @@ use RoundlyConsulting\Approvals\Events\ApprovalStageOpened;
 use RoundlyConsulting\Approvals\Models\ApprovalRequest;
 use RoundlyConsulting\Approvals\Support\ApprovalRequestModelResolver;
 use RoundlyConsulting\Approvals\Support\ApprovalRequestStageModelResolver;
+use RoundlyConsulting\Approvals\Support\ApproverList;
 
 final class RequestStagedApprovalAction
 {
     /**
-     * Open a staged (sequential) approval request for the subject.
+     * Open a staged (sequential) approval request for the subject. Each stage stores the
+     * approvers it names, and only they (or their delegates) may decide it while it is
+     * open; a stage opened without names may be decided by any approver.
      *
      * @param  list<StageDefinition>  $stages
      */
@@ -29,16 +32,22 @@ final class RequestStagedApprovalAction
         ?CarbonInterface $expiresAt = null,
         ?string $workflow = null,
     ): ApprovalRequest {
+        // Name (and validate) every stage before anything is written.
+        $named = [];
+        $required = [];
+
+        foreach ($stages as $index => $definition) {
+            $named[$index] = ApproverList::name($definition->approvers, $subject);
+            $required[$index] = ApproverList::required($named[$index], $definition->requiredApprovers);
+        }
+
         $requestModel = ApprovalRequestModelResolver::class();
 
         $request = new $requestModel;
         $request->subject_id = $subject->getKey();
         $request->subject_type = $subject->getMorphClass();
         $request->rule = ApprovalRule::Unanimous;
-        $request->required_approvers = array_sum(array_map(
-            static fn (StageDefinition $stage): int => count($stage->approvers),
-            $stages,
-        ));
+        $request->required_approvers = array_sum($required);
         $request->status = ApprovalStatus::Pending;
         $request->staged = true;
         $request->reject_on_stage_rejection = $rejectOnStageRejection;
@@ -52,14 +61,15 @@ final class RequestStagedApprovalAction
 
         $position = 1;
 
-        foreach ($stages as $definition) {
+        foreach ($stages as $index => $definition) {
             $stage = new $stageModel;
             $stage->approval_request_id = $request->getKey();
             $stage->position = $position;
             $stage->name = $definition->name;
             $stage->rule = $definition->rule;
             $stage->quorum = $definition->quorum;
-            $stage->required_approvers = count($definition->approvers);
+            $stage->approvers = ApproverList::payload($named[$index]);
+            $stage->required_approvers = $required[$index];
             $stage->status = ApprovalStatus::Pending;
 
             // The first stage opens immediately; later stages open as earlier ones clear.

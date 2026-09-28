@@ -33,6 +33,23 @@ final class DelegationResolver
     }
 
     /**
+     * Every delegation under which the given model acts as a delegate at the moment,
+     * newest first.
+     *
+     * @return Collection<int, ApprovalDelegation>
+     */
+    public function activeDelegationsTo(Model $delegate, ?CarbonInterface $moment = null): Collection
+    {
+        $model = ApprovalDelegationModelResolver::class();
+
+        return $model::query()
+            ->whereMorphedTo('delegate', $delegate)
+            ->active($moment)
+            ->latest('id')
+            ->get();
+    }
+
+    /**
      * The delegations the given delegator has in force at the moment, newest first.
      *
      * @return Collection<int, ApprovalDelegation>

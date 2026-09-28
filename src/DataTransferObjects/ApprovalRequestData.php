@@ -11,8 +11,8 @@ use RoundlyConsulting\Approvals\Enums\ApprovalRule;
 final readonly class ApprovalRequestData
 {
     /**
-     * @param  list<Model>  $approvers
-     * @param  int|null  $requiredApprovers  the headcount (or weight) in play; defaults to count($approvers)
+     * @param  list<Model>  $approvers  the named approvers; only they may decide (none named: anyone may)
+     * @param  int|null  $requiredApprovers  the approvals needed; defaults to one per named approver
      * @param  string|null  $workflow  the preset the request was opened from, if any
      */
     public function __construct(

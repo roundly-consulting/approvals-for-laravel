@@ -28,6 +28,23 @@ final class InvalidApprovalRequestException extends ApprovalsException
         return new self('An approval request takes either flat approvers (from()) or stages (stages()), not both.');
     }
 
+    /**
+     * An approver was named before it was saved, so it has no key to be matched by.
+     */
+    public static function unsavedApprover(Model $approver): self
+    {
+        return new self('Approver ['.$approver->getMorphClass().'] must be saved before it can be named on an approval request.');
+    }
+
+    /**
+     * A request (or stage) needs more approvals than it named approvers — only named
+     * approvers can decide, so it could never resolve.
+     */
+    public static function moreRequiredThanNamed(int $required, int $named): self
+    {
+        return new self("An approval request cannot require {$required} approvers when only {$named} are named.");
+    }
+
     private static function keyOf(Model $model): string
     {
         $key = $model->getKey();

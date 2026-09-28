@@ -13,12 +13,14 @@ use RoundlyConsulting\Approvals\Enums\ApprovalRule;
 final readonly class StageDefinition
 {
     /**
-     * @param  list<Model>  $approvers
+     * @param  list<Model>  $approvers  the stage's named approvers; only they may decide it (none named: anyone may)
+     * @param  int|null  $requiredApprovers  the approvals the stage needs; defaults to one per named approver
      */
     public function __construct(
         public array $approvers,
         public ApprovalRule $rule = ApprovalRule::Unanimous,
         public ?int $quorum = null,
         public ?string $name = null,
+        public ?int $requiredApprovers = null,
     ) {}
 }

@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use RoundlyConsulting\Approvals\Database\Factories\ApprovalRequestFactory;
 use RoundlyConsulting\Approvals\DataTransferObjects\ApprovalProgress;
+use RoundlyConsulting\Approvals\DataTransferObjects\NamedApprover;
 use RoundlyConsulting\Approvals\Enums\ApprovalRule;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Events\ApprovalRequestResolved;
@@ -32,6 +33,7 @@ use RoundlyConsulting\Approvals\Support\RuleEvaluator;
  * @property ApprovalRule $rule
  * @property int|null $quorum
  * @property int|null $required_approvers
+ * @property array<array-key, mixed>|null $approvers
  * @property bool $staged
  * @property bool $reject_on_stage_rejection
  * @property string|null $workflow
@@ -59,6 +61,7 @@ class ApprovalRequest extends Model
         return [
             'rule' => ApprovalRule::class,
             'status' => ApprovalStatus::class,
+            'approvers' => 'array',
             'staged' => 'boolean',
             'reject_on_stage_rejection' => 'boolean',
             'resolved_at' => 'immutable_datetime',
@@ -89,6 +92,41 @@ class ApprovalRequest extends Model
     {
         return $this->hasMany(ApprovalRequestStageModelResolver::class(), 'approval_request_id')
             ->orderBy('position');
+    }
+
+    /**
+     * The approvers a flat request names. Empty when it was opened without names — then
+     * any approver may decide. A staged request names its approvers per stage.
+     *
+     * @return list<NamedApprover>
+     */
+    public function namedApprovers(): array
+    {
+        return NamedApprover::listFrom($this->approvers);
+    }
+
+    /**
+     * The approvers who may decide right now: the open stage's for a staged request,
+     * the request's own for a flat one. Empty means any approver may decide.
+     *
+     * @return list<NamedApprover>
+     */
+    public function approversFor(?ApprovalRequestStage $stage = null): array
+    {
+        if ($stage instanceof ApprovalRequestStage) {
+            return $stage->namedApprovers();
+        }
+
+        return $this->staged ? [] : $this->namedApprovers();
+    }
+
+    /**
+     * Whether the request (or its open stage, for a staged request) names `$model` as
+     * an approver.
+     */
+    public function hasNamedApprover(Model $model): bool
+    {
+        return NamedApprover::listIncludes($this->approversFor($this->currentStage()), $model);
     }
 
     /**
