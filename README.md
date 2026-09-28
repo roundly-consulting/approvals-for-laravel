@@ -101,8 +101,161 @@ The package runs with zero host configuration.
 
 ## Usage
 
+Everything goes through one API — the `Approvals` facade, the injectable
+`ApprovalsManager` behind it, or the action classes it runs. All three execute the same code.
+
+### The facade
+
+```php
+use RoundlyConsulting\Approvals\Facades\Approvals;
+
+// One actor's decision on one approvable
+Approvals::for($deployment)->as($user)->because('Looks good to me')->approve();
+Approvals::for($deployment)->as($user)->because('Please add tests')->reject();
+Approvals::for($deployment)->as($user)->ask();                 // record a pending decision
+Approvals::for($deployment)->as($user)->cancel();              // withdraw an active decision
+Approvals::for($deployment)->as($user)->toggle();              // simple on/off
+Approvals::for($deployment)->as($user)->expiresIn(86400)->approve();
+Approvals::for($deployment)->as($user)->weight(3)->approve();  // override the decision's weight
+Approvals::for($invoice)->as($user)->within($request)->approve(); // pin to one request
+
+// Reads
+Approvals::for($deployment)->as($user)->isApproved();  // bool
+Approvals::for($deployment)->as($user)->isRejected();  // bool
+Approvals::for($deployment)->hasPending();             // bool — any pending decision
+
+// Multi-approver requests (flat, staged, or from a workflow preset)
+Approvals::request($invoice)->from([$a, $b, $c])->quorum(2)->expiresIn(3600)->open();
+Approvals::request($release)->stages([...])->continueOnRejection()->expiringAt($t)->open();
+Approvals::request($budget)->workflow('payout')->open([$a, $b, $c]);
+
+Approvals::status($invoice);        // ApprovalStatus of the latest request (Pending when none)
+Approvals::progress($invoice);      // ?ApprovalProgress
+Approvals::currentStage($release);  // ?ApprovalRequestStage
+Approvals::preset('payout');        // WorkflowPreset from config
+
+// Delegation
+Approvals::delegations($boss)->to($deputy)->from($monday)->until($friday)->grant();
+Approvals::delegations($boss)->revoke($deputy);   // or ->revoke() for all; returns int
+Approvals::delegations($boss)->active();          // Collection<ApprovalDelegation>
+Approvals::delegationFor($deputy);                // ?ApprovalDelegation in force now
+
+// Housekeeping
+Approvals::expire();                // lapse due pending decisions; returns int
+```
+
+| Method | Returns | Notes |
+|---|---|---|
+| `for($approvable)` / `as($actor)` | `PendingApproval` | set the other side with `as()` / `for()` |
+| `->within(ApprovalRequest)` | `PendingApproval` | the request must belong to the approvable, or `InvalidApprovalRequestException` |
+| `->because(?string)`, `->weight(int)`, `->expiresIn(int)`, `->expiringAt($t)` | `PendingApproval` | |
+| `->approve()` / `->reject()` / `->ask()` | `Approval` | |
+| `->cancel()` | `?Approval` | `null` when there was nothing to withdraw |
+| `->toggle()` | `bool` | `true` created, `false` removed |
+| `->isApproved()` / `->isRejected()` / `->hasPending()` | `bool` | |
+| `request($subject)` | `PendingApprovalRequest` | |
+| `->from([...])`, `->rule(ApprovalRule, ?quorum)`, `->any()`, `->quorum(n)`, `->weighted(n)` | `PendingApprovalRequest` | flat request |
+| `->stages([StageDefinition, ...])`, `->continueOnRejection()` | `PendingApprovalRequest` | staged request; `from()` and `stages()` together throw |
+| `->expiresIn(int)` / `->expiringAt($t)` | `PendingApprovalRequest` | |
+| `->open()` | `ApprovalRequest` | |
+| `->workflow($name)->open([...])` | `ApprovalRequest` | flat list, or one list per stage |
+| `status()` / `progress()` / `currentStage()` / `preset()` | see above | reads |
+| `delegations($delegator)` | `DelegationsHandle` | `to()`, `revoke(?$delegate)`, `active(?$at)` |
+| `->to($delegate)->from($t)->until($t)` or `->for($seconds)` | `PendingDelegation` | nothing is written until `grant()` |
+| `->grant()` | `ApprovalDelegation` | validates the window, then fires `ApprovalDelegated` |
+| `delegationFor($delegate, ?$at)` | `?ApprovalDelegation` | |
+| `expire(?$now)` | `int` | |
+
+The `Approvals` facade is registered automatically; a global `approvals()` helper returns the
+same manager.
+
+### Without the facade
+
+Inject the manager — the same API, no facade:
+
+```php
+use RoundlyConsulting\Approvals\ApprovalsManager;
+
+final class ApproveInvoice
+{
+    public function __construct(private ApprovalsManager $approvals) {}
+
+    public function __invoke(Invoice $invoice, User $user): void
+    {
+        $this->approvals->for($invoice)->as($user)->approve();
+    }
+}
+```
+
+Or call an action directly:
+
+```php
+use RoundlyConsulting\Approvals\Actions\ApproveAction;
+use RoundlyConsulting\Approvals\Actions\OpenApprovalRequestAction;
+use RoundlyConsulting\Approvals\DataTransferObjects\ApprovalRequestData;
+use RoundlyConsulting\Approvals\DataTransferObjects\DecisionData;
+use RoundlyConsulting\Approvals\Enums\ApprovalRule;
+
+app(OpenApprovalRequestAction::class)->execute(
+    new ApprovalRequestData($invoice, [$a, $b, $c], ApprovalRule::Quorum, quorum: 2),
+);
+
+app(ApproveAction::class)->execute($user, $invoice, DecisionData::approved('LGTM'));
+```
+
+| Action | Facade path |
+|---|---|
+| `ApproveAction` | `for()->as()->approve()` |
+| `RejectAction` | `for()->as()->reject()` |
+| `RequestApprovalAction` | `for()->as()->ask()` |
+| `CancelApprovalAction` | `for()->as()->cancel()` |
+| `ToggleApprovalAction` | `for()->as()->toggle()` |
+| `OpenApprovalRequestAction` | `request()->from()->open()` |
+| `RequestStagedApprovalAction` | `request()->stages()->open()` |
+| `OpenWorkflowRequestAction` | `request()->workflow()->open()` |
+| `DelegateApprovalsAction` | `delegations()->to()->grant()` |
+| `RevokeApprovalDelegationAction` | `delegations()->revoke()` |
+| `ExpireApprovalsAction` | `expire()` |
+
+### Faking in your tests
+
+`Approvals::fake()` swaps in `ApprovalsFake`, a subtype of `ApprovalsManager`, for the facade
+**and** for injected managers. Operations still run against your database; the fake records
+each one — whether it came through the facade, an injected manager or a model trait
+(`$user->approve($post)`) — so you can assert on it:
+
+```php
+use RoundlyConsulting\Approvals\Facades\Approvals;
+
+$fake = Approvals::fake();
+
+$this->post("/invoices/{$invoice->id}/approve");
+
+$fake->assertApproved($invoice, by: $user);   // or Approvals::assertApproved(...)
+$fake->assertNothingRejected();
+```
+
+| Assert | Negative |
+|---|---|
+| `assertApproved($approvable, ?$by)` | `assertNothingApproved()` |
+| `assertRejected($approvable, ?$by)` | `assertNothingRejected()` |
+| `assertAsked($approvable, ?$actor)` | `assertNothingAsked()` |
+| `assertCancelled($approvable, ?$by)` | `assertNothingCancelled()` |
+| `assertToggled($approvable, ?$by)` | `assertNothingToggled()` |
+| `assertOpened($subject, ?$workflow)` | `assertNothingOpened()` |
+| `assertDelegated($delegator, ?$to)` | `assertNothingDelegated()` |
+| `assertRevoked($delegator, ?$delegate)` | `assertNothingRevoked()` |
+| `assertExpired(?$count)` — a sweep ran (and lapsed `$count` in total) | `assertNothingExpired()` — no decision lapsed |
+
+`$fake->recorded(?ApprovalOperation $operation)` returns the raw
+`RecordedApprovalOperation` list (operation, context models, result) for custom assertions. An
+operation that throws is not recorded.
+
+### Models
+
 Add `GivesApprovals` to the model that decides, and `HasApprovals` to the model that is decided
-on. Add `RequiresApproval` to a subject that needs multi-approver sign-off.
+on. Add `RequiresApproval` to a subject that needs multi-approver sign-off. The traits are
+sugar: every state change they make goes through `ApprovalsManager`, so the fake sees it.
 
 ```php
 use Illuminate\Database\Eloquent\Model;
@@ -126,22 +279,6 @@ class Release extends Model
     use RequiresApproval;
 }
 ```
-
-### The facade and fluent builder
-
-```php
-use RoundlyConsulting\Approvals\Facades\Approvals;
-
-Approvals::for($deployment)->as($user)->because('Looks good to me')->approve();
-Approvals::for($deployment)->as($user)->because('Please add tests')->reject();
-Approvals::for($deployment)->as($user)->request();          // record a pending decision
-Approvals::for($deployment)->as($user)->cancel();           // withdraw an active decision
-Approvals::for($deployment)->as($user)->expiresIn(86400)->approve();
-Approvals::for($deployment)->as($user)->isApproved();       // bool
-```
-
-The `Approvals` facade is registered automatically; a global `approvals()` helper returns the
-same manager.
 
 ### Trait sugar
 
@@ -209,7 +346,8 @@ $release->requestApproval([$director, $analyst], ApprovalRule::Weighted, quorum:
 $director->approve($release);   // weight 3 alone meets the threshold -> approved
 ```
 
-You can also override the weight per decision via `DecisionData::approved(weight: 2)`.
+You can also override the weight per decision:
+`Approvals::for($release)->as($analyst)->weight(2)->approve()`.
 
 ### Sequential / staged pipelines
 
@@ -227,9 +365,13 @@ $release->requestStagedApproval([
 
 $release->currentStage();       // ?ApprovalRequestStage — the open stage
 $release->approvalProgress();   // ?ApprovalProgress — counts, current/total stages, percentage()
+
+// The same through the facade:
+Approvals::request($release)->stages([...])->continueOnRejection()->expiringAt($deadline)->open();
 ```
 
-Pass `rejectOnStageRejection: false` to let the pipeline continue past a rejected stage.
+Pass `rejectOnStageRejection: false` (facade: `continueOnRejection()`) to let the pipeline
+continue past a rejected stage, and `expiresAt:` (facade: `expiringAt()`) to stamp an expiry.
 Staged requests dispatch `ApprovalStageOpened` and `ApprovalStageCleared`.
 
 ### Delegation (proxy authority)
@@ -241,8 +383,11 @@ delegator (as `actor`) and the delegate (as `decided_by`).
 ```php
 use Carbon\CarbonImmutable;
 
-$manager->delegateApprovalsTo($assistant)->until(CarbonImmutable::now()->addWeek());
-// or ->from($start), ->for($seconds), or bare for an open-ended delegation
+Approvals::delegations($manager)->to($assistant)->until(CarbonImmutable::now()->addWeek())->grant();
+// or ->from($start), ->for($seconds) (measured from the start), or no window at all
+
+$manager->delegateApprovalsTo($assistant);                                    // open-ended
+$manager->delegateApprovalsTo($assistant, until: CarbonImmutable::now()->addWeek());
 
 $assistant->approve($release);          // counts as $manager
 $approval->wasDelegated();              // true
@@ -252,11 +397,13 @@ $approval->decidedBy;                   // $assistant
 $manager->revokeApprovalDelegation();           // revoke all
 $manager->revokeApprovalDelegation($assistant); // revoke one
 $manager->approvalDelegations;                  // MorphMany<ApprovalDelegation>
+Approvals::delegations($manager)->active();     // the ones in force now
 ```
 
-Self-delegation and a window that ends before it starts throw
-`RoundlyConsulting\Approvals\Exceptions\InvalidDelegationException`. Delegation also fires
-`ApprovalDelegated` and `ApprovalDelegationRevoked`.
+Nothing is written until `grant()`: self-delegation and a window that ends before it starts
+throw `RoundlyConsulting\Approvals\Exceptions\InvalidDelegationException` and leave no row
+behind. `ApprovalDelegated` fires once, with the final window; `ApprovalDelegationRevoked`
+fires per revoked delegation.
 
 ### Workflow presets
 
@@ -283,10 +430,10 @@ sites stay short:
 
 ```php
 // Flat preset: a single approver list.
-Approvals::for($budget)->workflow('payout')->request([$a, $b, $c]);
+Approvals::request($budget)->workflow('payout')->open([$a, $b, $c]);
 
 // Staged preset: one approver group per stage, in order.
-Approvals::for($release)->workflow('release')->request([[$eng1, $eng2], [$product]]);
+Approvals::request($release)->workflow('release')->open([[$eng1, $eng2], [$product]]);
 ```
 
 An unknown or malformed preset throws
@@ -382,7 +529,8 @@ it, and fires `ApprovalToggled`.
 
 ### Test helpers (for host apps)
 
-Opt-in ergonomics for testing your own app. They live under
+Opt-in ergonomics for testing your own app, next to `Approvals::fake()` (see
+[Faking in your tests](#faking-in-your-tests)). They live under
 `RoundlyConsulting\Approvals\Testing` and pull in **no runtime dependency** — Pest is only
 touched when you call the registrar.
 
@@ -409,6 +557,8 @@ uses(InteractsWithApprovals::class);
 $this->actingAsApprover($reviewer)->approveAs($release);
 $this->rejectAs($release, 'needs work', $otherReviewer);
 ```
+
+Both helpers go through `ApprovalsManager`, so they are recorded under `Approvals::fake()`.
 
 Factories ship states for the new models too: `ApprovalFactory::weight()/delegated()/forStage()`,
 `ApprovalRequestFactory::weighted()/staged()`, plus `ApprovalDelegationFactory` and
