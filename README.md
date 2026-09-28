@@ -25,11 +25,12 @@ Any model can act as an **actor** that decides on things (a user, a team, a serv
 and any model can be **approvable** (a deployment, a document, a comment). Decisions carry an
 explicit status (`pending`, `approved`, `rejected`, `cancelled`, `expired`), an optional reason,
 and an optional expiry. A subject can also open an **approval request** that needs sign-off from
-several approvers under a rule (unanimous, quorum, any-one, or **weighted**), resolving
-automatically as decisions come in. Requests can run as **sequential, staged pipelines**,
-approvers can **delegate** their authority for a time window, and common setups can be
-captured as named **workflow presets**. Every transition fires an event you can hook into,
-including a single umbrella `ApprovalStatusChanged` event.
+the approvers it names under a rule (unanimous, quorum, any-one, or **weighted**), resolving
+automatically as their decisions come in — only the named approvers (or their delegates) can
+decide it. Requests can run as **sequential, staged pipelines**, approvers can **delegate** their
+authority for a time window, and common setups can be captured as named **workflow presets**.
+Every transition fires an event you can hook into, including a single umbrella
+`ApprovalStatusChanged` event.
 
 The original lightweight "toggle" workflow still works as a one-liner.
 
@@ -71,7 +72,7 @@ return [
     'request_model' => RoundlyConsulting\Approvals\Models\ApprovalRequest::class,
     'stage_model' => RoundlyConsulting\Approvals\Models\ApprovalRequestStage::class,
     'delegation_model' => RoundlyConsulting\Approvals\Models\ApprovalDelegation::class,
-    'default_status' => RoundlyConsulting\Approvals\Enums\ApprovalStatus::Approved->value,
+    'key_type' => env('APPROVALS_KEY_TYPE', 'bigint'),
     'authorization' => [
         'enabled' => env('APPROVALS_AUTHORIZATION', false),
         'ability' => 'decide-approval',
@@ -91,10 +92,10 @@ return [
 | `request_model` | `class-string<ApprovalRequest>` | `ApprovalRequest::class` | Model used to persist multi-approver requests. Must extend the package's `ApprovalRequest`. |
 | `stage_model` | `class-string<ApprovalRequestStage>` | `ApprovalRequestStage::class` | Model used to persist a staged request's stages. Must extend the package's `ApprovalRequestStage`. |
 | `delegation_model` | `class-string<ApprovalDelegation>` | `ApprovalDelegation::class` | Model used to persist delegations. Must extend the package's `ApprovalDelegation`. |
-| `default_status` | `string` | `'approved'` | Status applied to a toggled approval (`approved` by default). |
-| `authorization.enabled` | `bool` | `false` (env `APPROVALS_AUTHORIZATION`) | When true, every decision is gated through a Gate ability. |
+| `key_type` | `string` | `'bigint'` (env `APPROVALS_KEY_TYPE`) | Key type of the polymorphic id columns (actor, approvable, subject, request, `decided_by`, delegator, delegate): `bigint`, `uuid` or `ulid`. Read by the migrations, so set it before you migrate; match your models' primary keys. Anything else falls back to `bigint`. |
+| `authorization.enabled` | `bool` | `false` (env `APPROVALS_AUTHORIZATION`) | When true, every decision path (approve, reject, toggle, ask, cancel) is gated through a Gate ability. Env strings `true`/`1`/`yes`/`on` enable it. |
 | `authorization.ability` | `string` | `'decide-approval'` | The Gate ability checked against the approvable. |
-| `expiry.default` | `int\|null` | `null` | Default approval lifetime in seconds. `null` means never. |
+| `expiry.default` | `int\|null` | `null` | Lifetime in seconds of an approval given without an explicit expiry; it stops counting once that passes. `null` means approvals never expire unless you set one per decision. |
 | `workflows` | `array` | `[]` | Named workflow presets (see below). |
 
 The package runs with zero host configuration.
@@ -111,11 +112,11 @@ use RoundlyConsulting\Approvals\Facades\Approvals;
 
 // One actor's decision on one approvable
 Approvals::for($deployment)->as($user)->because('Looks good to me')->approve();
-Approvals::for($deployment)->as($user)->because('Please add tests')->reject();
-Approvals::for($deployment)->as($user)->ask();                 // record a pending decision
-Approvals::for($deployment)->as($user)->cancel();              // withdraw an active decision
+Approvals::for($deployment)->as($user)->because('Please add tests')->reject(); // withdraws the approval above
+Approvals::for($deployment)->as($user)->ask();                 // ask the actor: a pending decision
+Approvals::for($deployment)->as($user)->cancel();              // withdraw the actor's live decision
 Approvals::for($deployment)->as($user)->toggle();              // simple on/off
-Approvals::for($deployment)->as($user)->expiresIn(86400)->approve();
+Approvals::for($deployment)->as($user)->expiresIn(86400)->approve(); // valid for a day
 Approvals::for($deployment)->as($user)->weight(3)->approve();  // override the decision's weight
 Approvals::for($invoice)->as($user)->within($request)->approve(); // pin to one request
 
@@ -141,17 +142,17 @@ Approvals::delegations($boss)->active();          // Collection<ApprovalDelegati
 Approvals::delegationFor($deputy);                // ?ApprovalDelegation in force now
 
 // Housekeeping
-Approvals::expire();                // lapse due pending decisions; returns int
+Approvals::expire();                // lapse overdue asks, approvals and requests; returns int
 ```
 
 | Method | Returns | Notes |
 |---|---|---|
 | `for($approvable)` / `as($actor)` | `PendingApproval` | set the other side with `as()` / `for()` |
-| `->within(ApprovalRequest)` | `PendingApproval` | the request must belong to the approvable, or `InvalidApprovalRequestException` |
+| `->within(ApprovalRequest)` | `PendingApproval` | the request must belong to the approvable and not have expired, or `InvalidApprovalRequestException` |
 | `->because(?string)`, `->weight(int)`, `->expiresIn(int)`, `->expiringAt($t)` | `PendingApproval` | |
-| `->approve()` / `->reject()` / `->ask()` | `Approval` | |
-| `->cancel()` | `?Approval` | `null` when there was nothing to withdraw |
-| `->toggle()` | `bool` | `true` created, `false` removed |
+| `->approve()` / `->reject()` / `->ask()` | `Approval` | counts towards the pinned request, else the approvable's latest open request; an actor that request does not name gets `UnauthorizedApprovalException`. `ask()` returns the actor's live decision unchanged when it already holds one |
+| `->cancel()` | `?Approval` | withdraws the actor's live decision, or one it made as a delegate; `null` when there was nothing to withdraw |
+| `->toggle()` | `bool` | `true` approved (through `approve()`), `false` withdrawn |
 | `->isApproved()` / `->isRejected()` / `->hasPending()` | `bool` | |
 | `request($subject)` | `PendingApprovalRequest` | |
 | `->from([...])`, `->rule(ApprovalRule, ?quorum)`, `->any()`, `->quorum(n)`, `->weighted(n)` | `PendingApprovalRequest` | flat request |
@@ -164,7 +165,7 @@ Approvals::expire();                // lapse due pending decisions; returns int
 | `->to($delegate)->from($t)->until($t)` or `->for($seconds)` | `PendingDelegation` | nothing is written until `grant()` |
 | `->grant()` | `ApprovalDelegation` | validates the window, then fires `ApprovalDelegated` |
 | `delegationFor($delegate, ?$at)` | `?ApprovalDelegation` | |
-| `expire(?$now)` | `int` | |
+| `expire(?$now)` | `int` | the number of decisions and requests lapsed |
 
 The `Approvals` facade is registered automatically; a global `approvals()` helper returns the
 same manager.
@@ -245,7 +246,7 @@ $fake->assertNothingRejected();
 | `assertOpened($subject, ?$workflow)` | `assertNothingOpened()` |
 | `assertDelegated($delegator, ?$to)` | `assertNothingDelegated()` |
 | `assertRevoked($delegator, ?$delegate)` | `assertNothingRevoked()` |
-| `assertExpired(?$count)` — a sweep ran (and lapsed `$count` in total) | `assertNothingExpired()` — no decision lapsed |
+| `assertExpired(?$count)` — a sweep ran (and lapsed `$count` decisions and requests in total) | `assertNothingExpired()` — nothing lapsed |
 
 `$fake->recorded(?ApprovalOperation $operation)` returns the raw
 `RecordedApprovalOperation` list (operation, context models, result) for custom assertions. An
@@ -254,8 +255,10 @@ operation that throws is not recorded.
 ### Models
 
 Add `GivesApprovals` to the model that decides, and `HasApprovals` to the model that is decided
-on. Add `RequiresApproval` to a subject that needs multi-approver sign-off. The traits are
-sugar: every state change they make goes through `ApprovalsManager`, so the fake sees it.
+on. Add `RequiresApproval` to a subject that needs multi-approver sign-off. One model may use all
+three (a team that approves others' work and needs sign-off itself): the actor side's relation is
+`givenApprovals()`, the approvable side's is `approvals()`. The traits are sugar: every state
+change they make goes through `ApprovalsManager`, so the fake sees it.
 
 ```php
 use Illuminate\Database\Eloquent\Model;
@@ -288,16 +291,26 @@ $user->reject($deployment, 'needs work'); // Approval
 $user->cancelApproval($deployment);       // ?Approval
 $user->toggleApproval($deployment);       // bool (simple on/off)
 
-$user->hasApproved($deployment);          // bool — holds an approved decision
+$user->hasApproved($deployment);          // bool — holds an approval still in force
 $user->hasRejected($deployment);          // bool
 $user->approvalFor($deployment);          // ?Approval (latest)
+$user->givenApprovals;                    // Collection<Approval> — every decision the user recorded
 
 $deployment->hasBeenApprovedBy($user);    // bool
 $deployment->hasBeenRejectedBy($user);    // bool
 $deployment->isApprovedBy($user);         // bool
-$deployment->approvalCount();             // int
-$deployment->pendingApprovals();          // Collection<Approval>
+$deployment->approvalCount();             // int — approvals still in force
+$deployment->pendingApprovals();          // Collection<Approval> — asks not yet past their deadline
+$deployment->approvals;                   // Collection<Approval> — every decision on the deployment
 ```
+
+Each actor holds **one live decision** per slot — a standalone decision on the approvable, or its
+decision on one request (or one stage of a staged request). Deciding again changes that decision
+rather than adding a second one: approving twice is a no-op, and rejecting after approving
+withdraws the approval (its status becomes `cancelled`) so only the rejection counts — and vice
+versa. A database unique index guards the slot, so two concurrent approvals by the same actor
+are counted once. A new request, or the next stage, is a fresh slot: approving an earlier
+request never blocks you from approving the next.
 
 ### Multi-approver requests & quorum
 
@@ -321,6 +334,26 @@ $release->isPendingApproval();       // bool
 $release->currentApprovalStatus();   // ApprovalStatus
 ```
 
+**Only the named approvers decide.** The approvers you pass (`requestApproval([...])`,
+`Approvals::request($subject)->from([...])`, a `StageDefinition`'s list, or a workflow's
+`open([...])`) are stored on the request — per stage for a staged request — and only they, or a
+delegate acting for one of them, can decide it. Anyone else gets
+`RoundlyConsulting\Approvals\Exceptions\UnauthorizedApprovalException` from `approve()`,
+`reject()`, `toggle()` and `ask()`, and nothing is recorded:
+
+```php
+$release->requestApproval([$lead, $qa, $pm], ApprovalRule::Quorum, quorum: 2);
+
+$intern->approve($release);   // throws UnauthorizedApprovalException — not a named approver
+$release->approvalRequests()->latest('id')->first()->namedApprovers(); // list<NamedApprover>
+```
+
+A request opened **without** named approvers (`from([])`, or an `ApprovalRequest` you create
+yourself with only `required_approvers`) keeps open semantics: any approver's decision counts,
+until `required_approvers` of them have decided. Each approver is stored once, the request can't
+require more approvals than it names (`InvalidApprovalRequestException`), and a quorum/weighted
+threshold its approvers could never reach is refused when the request opens.
+
 ### Weighted thresholds
 
 `ApprovalRule::Weighted` (and `Quorum`) resolve on the **summed weight** of approvals rather
@@ -343,11 +376,20 @@ class User extends Model implements ProvidesApprovalWeight
 }
 
 $release->requestApproval([$director, $analyst], ApprovalRule::Weighted, quorum: 3);
-$director->approve($release);   // weight 3 alone meets the threshold -> approved
+$analyst->approve($release);    // weight 1 — still pending: the director's 3 can still reach it
+$director->approve($release);   // weight 3 meets the threshold -> approved
 ```
 
+A threshold request rejects once the threshold is out of reach: the approval weight in, plus the
+weight the undecided named approvers carried when the request opened, falls short of it. Without
+named approvers each outstanding slot counts as weight 1 under `Quorum`; an unnamed `Weighted`
+request can't know what its approvers weigh, so it only rejects once every slot has decided.
+`Unanimous` and `Any` count heads, not weights.
+
 You can also override the weight per decision:
-`Approvals::for($release)->as($analyst)->weight(2)->approve()`.
+`Approvals::for($release)->as($analyst)->weight(2)->approve()`. Overrides are not anticipated
+when checking reachability — give approvers their weight through `ProvidesApprovalWeight` when a
+request depends on it.
 
 ### Sequential / staged pipelines
 
@@ -370,15 +412,24 @@ $release->approvalProgress();   // ?ApprovalProgress — counts, current/total s
 Approvals::request($release)->stages([...])->continueOnRejection()->expiringAt($deadline)->open();
 ```
 
+Only the open stage's approvers can decide it — a later stage's approver, or an outsider, gets
+`UnauthorizedApprovalException` until that stage opens. A stage needs one approval per named
+approver unless its `StageDefinition` says otherwise (`requiredApprovers:`), and it may name
+nobody (`new StageDefinition([], ApprovalRule::Any, requiredApprovers: 1)`) to let any approver
+decide it.
+
 Pass `rejectOnStageRejection: false` (facade: `continueOnRejection()`) to let the pipeline
 continue past a rejected stage, and `expiresAt:` (facade: `expiringAt()`) to stamp an expiry.
-Staged requests dispatch `ApprovalStageOpened` and `ApprovalStageCleared`.
+Staged requests dispatch `ApprovalStageOpened` whenever a stage opens (including the one after a
+rejected stage the pipeline continues past) and `ApprovalStageCleared` when a stage is approved.
 
 ### Delegation (proxy authority)
 
 An approver can hand their authority to another model for a window. While the delegation is
 active, the delegate's decisions count **as the delegator** — the approval records both the
-delegator (as `actor`) and the delegate (as `decided_by`).
+delegator (as `actor`) and the delegate (as `decided_by`). On a request that names its approvers,
+a delegate may decide for a named delegator; a model that is itself a named approver always
+decides as itself, even when it also stands in for someone.
 
 ```php
 use Carbon\CarbonImmutable;
@@ -394,7 +445,9 @@ $approval->wasDelegated();              // true
 $approval->actor;                       // $manager
 $approval->decidedBy;                   // $assistant
 
-$manager->revokeApprovalDelegation();           // revoke all
+$assistant->cancelApproval($release);   // the delegate can withdraw what it decided for $manager
+
+$manager->revokeApprovalDelegation();           // revoke all — active and scheduled (future) ones
 $manager->revokeApprovalDelegation($assistant); // revoke one
 $manager->approvalDelegations;                  // MorphMany<ApprovalDelegation>
 Approvals::delegations($manager)->active();     // the ones in force now
@@ -437,31 +490,48 @@ Approvals::request($release)->workflow('release')->open([[$eng1, $eng2], [$produ
 ```
 
 An unknown or malformed preset throws
-`RoundlyConsulting\Approvals\Exceptions\UnknownWorkflowException`.
+`RoundlyConsulting\Approvals\Exceptions\UnknownWorkflowException`. A stage's
+`required_approvers` is the number of approvals it needs, so its group must name at least that
+many approvers (a flat preset's `required_approvers` likewise); otherwise opening throws
+`InvalidApprovalRequestException`. A preset's `expiry` lapses the request like `expiresIn()`.
 
 ### Authorization
 
-Set `approvals.authorization.enabled` to `true` (or `APPROVALS_AUTHORIZATION=true`) to gate every
-decision through a Gate ability. The package never defines the gate — your app does:
+Set `approvals.authorization.enabled` to `true` (or `APPROVALS_AUTHORIZATION=true` / `1` / `yes` /
+`on`) to gate every decision path — `approve()`, `reject()`, `toggle()`, `ask()` (checked for the
+asked actor) and `cancel()` — through a Gate ability, checked for the model that acts (a
+delegate, not its delegator). The package never defines the gate — your app does:
 
 ```php
 Gate::define('decide-approval', fn ($user, $approvable) => $user->can('review', $approvable));
 ```
 
-A denied gate throws `RoundlyConsulting\Approvals\Exceptions\UnauthorizedApprovalException`.
+A denied gate throws `RoundlyConsulting\Approvals\Exceptions\UnauthorizedApprovalException`. The
+named-approver check on requests is separate and always on.
 
 ### Expiry
 
 ```php
-Approvals::for($budget)->as($cfo)->expiresIn(86400)->approve();
+Approvals::for($budget)->as($cfo)->expiresIn(86400)->approve(); // valid for a day
+Approvals::for($budget)->as($cfo)->expiresIn(3600)->ask();      // reply within an hour
+Approvals::request($budget)->from([$cfo, $ceo])->expiresIn(604800)->open(); // decide within a week
 
-// Lapse due pending approvals (schedule this):
+// Lapse everything overdue (schedule this):
 Approvals::expire();
 ```
 
 ```bash
 php artisan approvals:expire
 ```
+
+An approval, ask or request stops counting the moment its expiry passes — reads such as
+`isApproved()` / `hasApproved()` / `approvalCount()` and a request's tally ignore it, and a request
+past its expiry accepts no more decisions (it resolves as `expired` on the next decision, or a
+decision pinned to it with `within()` throws `InvalidApprovalRequestException`). The sweep then
+records the lapse: decisions move to `expired` (`ApprovalExpired`), requests resolve as `expired`
+(`ApprovalRequestResolved`), and `expire()` returns how many of both it lapsed. An expired
+approval frees its actor to approve again. Set `approvals.expiry.default` to give every approval a
+lifetime unless the decision sets its own; answering an ask never inherits the ask's deadline.
 
 ### Blade directives
 
@@ -477,21 +547,24 @@ Each transition dispatches an event carrying the relevant model:
 
 | Event | Fired when |
 |---|---|
-| `ApprovalRequested` | a pending decision is recorded |
+| `ApprovalRequested` | a pending decision is asked for (`ask()`) |
 | `ApprovalApproved` | a decision is approved |
 | `ApprovalRejected` | a decision is rejected |
-| `ApprovalCancelled` | a decision is withdrawn |
-| `ApprovalExpired` | a pending decision lapses |
-| `ApprovalRequestResolved` | a request reaches approved/rejected |
-| `ApprovalToggled` | `toggleApproval()` runs |
+| `ApprovalCancelled` | a decision is withdrawn (`cancel()`) |
+| `ApprovalExpired` | a pending or approved decision lapses |
+| `ApprovalRequestResolved` | a request reaches approved, rejected or expired |
+| `ApprovalToggled` | `toggle()` / `toggleApproval()` runs |
 | `ApprovalStageOpened` | a staged request opens a stage |
-| `ApprovalStageCleared` | a staged request clears a stage |
+| `ApprovalStageCleared` | a staged request clears (approves) a stage |
 | `ApprovalDelegated` | an approver delegates authority |
 | `ApprovalDelegationRevoked` | a delegation is revoked |
-| `ApprovalStatusChanged` | **umbrella** — fired for every status change alongside the granular events |
+| `ApprovalStatusChanged` | **umbrella** — fired for every status transition alongside the granular events |
 
-Subscribe to `ApprovalStatusChanged` once to observe all transitions. It carries the
-`subject` (approval or request), `from`/`to` `ApprovalStatus`, and the `actor`:
+Subscribe to `ApprovalStatusChanged` once to observe all transitions: a decision approved,
+rejected, withdrawn (including by a toggle or by a change of mind that supersedes it) or
+expired, and a request resolved or expired. An `ask()` creates a pending decision rather than
+changing one, so it fires only `ApprovalRequested`. The event carries the `subject` (approval
+or request), `from`/`to` `ApprovalStatus`, and the `actor`:
 
 ```php
 use RoundlyConsulting\Approvals\Events\ApprovalStatusChanged;
@@ -520,12 +593,14 @@ class NotifyOnApproval
 ### The simple toggle
 
 ```php
-$user->toggleApproval($deployment); // true  — approval created (status: approved)
-$user->toggleApproval($deployment); // false — approval removed (soft delete)
+$user->toggleApproval($deployment); // true  — approved (status: approved)
+$user->toggleApproval($deployment); // false — withdrawn (status: cancelled, soft-deleted)
 ```
 
-`toggleApproval()` is the one-click on/off form: it creates an approved decision or soft-deletes
-it, and fires `ApprovalToggled`.
+`toggleApproval()` is the one-click on/off form. Toggling on is an `approve()` — the gate, the
+request's named approvers, delegation and the open request all apply, and a rejection you hold is
+superseded. Toggling off withdraws your live approval and soft-deletes it. Both fire
+`ApprovalToggled` and `ApprovalStatusChanged`.
 
 ### Test helpers (for host apps)
 
@@ -577,16 +652,16 @@ their domain methods (`isPending()`/`isDecided()`/`isFinal()`/`canTransitionTo()
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Enums\ApprovalRule;
 
-ApprovalStatus::values();          // ['pending','approved','rejected','cancelled','expired']
-ApprovalStatus::labels();          // ['Pending','Approved','Rejected','Cancelled','Expired']
-ApprovalStatus::options();         // list of {value, label, name} option DTOs for selects
+ApprovalStatus::values();          // Collection: ['pending','approved','rejected','cancelled','expired']
+ApprovalStatus::labels();          // Collection: ['Pending','Approved','Rejected','Cancelled','Expired']
+ApprovalStatus::options();         // Collection of {value, label, name} EnumOption DTOs for selects
 ApprovalStatus::validationRule();  // 'in:pending,approved,rejected,cancelled,expired'
 ApprovalStatus::tryFromName('Approved');   // ApprovalStatus::Approved
 
 ApprovalStatus::Approved->readable();      // 'Approved' (translated, headline-cased)
 ApprovalStatus::Approved->isIn([ApprovalStatus::Approved, ApprovalStatus::Rejected]); // true
 
-ApprovalRule::options();           // ready-made rule picker
+ApprovalRule::options();           // Collection<EnumOption> — a ready-made rule picker
 ApprovalRule::validationRule();    // 'in:unanimous,quorum,any,weighted'
 $rule->readable();                 // 'Unanimous', 'Quorum', 'Any', 'Weighted'
 ```

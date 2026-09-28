@@ -71,7 +71,7 @@ describe('persistence', function (): void {
         config()->set('approvals.workflows.payout', ['rule' => 'quorum', 'quorum' => 2, 'required_approvers' => 3]);
 
         expect(fn () => Approvals::request(ReleaseTestModel::create())->workflow('payout')->open(namedReviewers(2)))
-            ->toThrow(InvalidApprovalRequestException::class, 'require 3 approvers when only 2 are named');
+            ->toThrow(InvalidApprovalRequestException::class, 'cannot require 3 approvals from 2 named approver(s)');
     });
 
     it('skips malformed stored approvers', function (): void {

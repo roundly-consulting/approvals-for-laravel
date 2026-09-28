@@ -42,7 +42,7 @@ final class InvalidApprovalRequestException extends ApprovalsException
      */
     public static function moreRequiredThanNamed(int $required, int $named): self
     {
-        return new self("An approval request cannot require {$required} approvers when only {$named} are named.");
+        return new self("An approval request cannot require {$required} approvals from {$named} named approver(s).");
     }
 
     /**
