@@ -231,18 +231,18 @@ class ApprovalRequest extends Model
                 return $this;
             }
 
-            if ($outcome === ApprovalStatus::Rejected) {
-                if ($this->reject_on_stage_rejection) {
-                    $this->finalize(ApprovalStatus::Rejected);
+            if ($outcome === ApprovalStatus::Rejected && $this->reject_on_stage_rejection) {
+                $this->finalize(ApprovalStatus::Rejected);
 
-                    return $this;
-                }
-
-                continue;
+                return $this;
             }
 
-            ApprovalStageCleared::dispatch($stage);
+            if ($outcome === ApprovalStatus::Approved) {
+                ApprovalStageCleared::dispatch($stage);
+            }
 
+            // The stage settled (cleared, or rejected on a request that continues past
+            // rejections): the next one opens now, and says so.
             $next = $this->stages()
                 ->where('status', ApprovalStatus::Pending)
                 ->orderBy('position')

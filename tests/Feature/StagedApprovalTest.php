@@ -90,6 +90,23 @@ it('continues past a rejected stage when configured not to reject', function ():
     expect($release->currentApprovalStatus())->toBe(ApprovalStatus::Approved);
 });
 
+it('opens the stage after a rejected one with its event when continuing', function (): void {
+    $release = ReleaseTestModel::create();
+    $eng = ReviewerTestModel::create();
+    $product = ReviewerTestModel::create();
+
+    $release->requestStagedApproval([
+        new StageDefinition([$eng], ApprovalRule::Any, name: 'engineering'),
+        new StageDefinition([$product], ApprovalRule::Any, name: 'product'),
+    ], rejectOnStageRejection: false);
+
+    Event::fake([ApprovalStageOpened::class]);
+
+    $eng->reject($release);
+
+    Event::assertDispatched(ApprovalStageOpened::class, fn (ApprovalStageOpened $event): bool => $event->stage->name === 'product');
+});
+
 it('dispatches stage opened and cleared events', function (): void {
     Event::fake();
 
