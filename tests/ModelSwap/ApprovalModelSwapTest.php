@@ -41,7 +41,7 @@ it('honours a host approval model through the decision flow', function (): void 
             $rejected,
             // The morph relation hydrates through the seam too, not just the writes.
             ...$deployment->approvals()->get()->all(),
-            ...$actor->approvals()->get()->all(),
+            ...$actor->givenApprovals()->get()->all(),
         ];
     });
 });

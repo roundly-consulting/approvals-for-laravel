@@ -67,10 +67,10 @@ it('lists approvals given by an actor', function (): void {
 
     $actor->toggleApproval($deployment);
 
-    expect($actor->approvals)
+    expect($actor->givenApprovals)
         ->toBeInstanceOf(Collection::class)
         ->toHaveCount(1)
-        ->and($actor->approvals->first())
+        ->and($actor->givenApprovals->first())
         ->toBeInstanceOf(Approval::class);
 });
 

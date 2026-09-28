@@ -32,5 +32,9 @@ return new class extends Migration
         Schema::create('releases', function (Blueprint $table): void {
             $table->increments('id');
         });
+
+        Schema::create('teams', function (Blueprint $table): void {
+            $table->increments('id');
+        });
     }
 };

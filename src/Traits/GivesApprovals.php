@@ -24,9 +24,15 @@ use RoundlyConsulting\Approvals\Support\ApprovalModelResolver;
 trait GivesApprovals
 {
     /**
+     * The decisions this model has recorded as an actor.
+     *
+     * Not named `approvals()`: that is the approvable side's relation
+     * ({@see HasApprovals}), and a model that both decides and is decided on (a team)
+     * uses both traits — two `approvals()` methods would be a fatal trait collision.
+     *
      * @return MorphMany<Approval, $this>
      */
-    public function approvals(): MorphMany
+    public function givenApprovals(): MorphMany
     {
         return $this->morphMany(ApprovalModelResolver::class(), 'actor');
     }
@@ -36,7 +42,7 @@ trait GivesApprovals
      */
     public function hasApproved(Model $model): bool
     {
-        return $this->approvals()
+        return $this->givenApprovals()
             ->whereMorphedTo('approvable', $model)
             ->where('status', ApprovalStatus::Approved)
             ->exists();
@@ -47,7 +53,7 @@ trait GivesApprovals
      */
     public function hasRejected(Model $model): bool
     {
-        return $this->approvals()
+        return $this->givenApprovals()
             ->whereMorphedTo('approvable', $model)
             ->where('status', ApprovalStatus::Rejected)
             ->exists();
@@ -55,7 +61,7 @@ trait GivesApprovals
 
     public function approvalFor(Model $model): ?Approval
     {
-        return $this->approvals()
+        return $this->givenApprovals()
             ->whereMorphedTo('approvable', $model)
             ->latest('id')
             ->first();

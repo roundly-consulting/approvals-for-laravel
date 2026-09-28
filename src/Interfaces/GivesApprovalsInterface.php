@@ -13,7 +13,7 @@ interface GivesApprovalsInterface
     /**
      * @return MorphMany<Approval, Model>
      */
-    public function approvals(): MorphMany;
+    public function givenApprovals(): MorphMany;
 
     public function hasApproved(Model $model): bool;
 
