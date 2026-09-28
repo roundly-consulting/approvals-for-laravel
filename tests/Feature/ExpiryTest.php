@@ -156,6 +156,18 @@ describe('an expiring request', function (): void {
             ->and(Approval::query()->count())->toBe(0);
     });
 
+    it('resolves an overdue request as expired whatever its decisions say', function (): void {
+        $release = ReleaseTestModel::create();
+        $lead = ReviewerTestModel::create();
+
+        $request = Approvals::request($release)->from([$lead])->any()->expiresIn(60)->open();
+
+        twoDaysLater();
+
+        expect($request->resolve()->status)->toBe(ApprovalStatus::Expired)
+            ->and($request->lapseIfOverdue())->toBeFalse();
+    });
+
     it('lapses a workflow preset\'s expiry too', function (): void {
         config()->set('approvals.workflows.payout', ['rule' => 'any', 'expiry' => 60]);
 

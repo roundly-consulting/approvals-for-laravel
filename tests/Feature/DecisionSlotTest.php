@@ -10,6 +10,7 @@ use RoundlyConsulting\Approvals\DataTransferObjects\StageDefinition;
 use RoundlyConsulting\Approvals\Enums\ApprovalRule;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Events\ApprovalApproved;
+use RoundlyConsulting\Approvals\Exceptions\InvalidApprovalRequestException;
 use RoundlyConsulting\Approvals\Facades\Approvals;
 use RoundlyConsulting\Approvals\Models\Approval;
 use RoundlyConsulting\Approvals\Support\LiveDecisions;
@@ -79,6 +80,25 @@ describe('the double-approval race', function (): void {
             ->and(Approvals::status($release))->toBe(ApprovalStatus::Pending);
 
         Event::assertNotDispatched(ApprovalApproved::class);
+    });
+
+    it('gives up after three refused writes instead of looping', function (): void {
+        $actor = ReviewerTestModel::create();
+        $deployment = DeploymentTestModel::create();
+
+        $actor->approve($deployment);
+
+        // A reader that never sees the committed decision: every write collides.
+        app()->instance(LiveDecisions::class, new class
+        {
+            public function in(DecisionTarget $target): ?Approval
+            {
+                return null;
+            }
+        });
+
+        expect(fn () => $actor->reject($deployment))->toThrow(UniqueConstraintViolationException::class)
+            ->and(Approval::query()->count())->toBe(1);
     });
 
     it('keeps tracking the slot under Event::fake()', function (): void {
@@ -240,6 +260,30 @@ describe('withdrawing a delegated decision', function (): void {
         expect($withdrawn?->status)->toBe(ApprovalStatus::Cancelled)
             ->and($withdrawn?->actor_id)->toBe($boss->getKey())
             ->and($boss->hasApproved($deployment))->toBeFalse();
+    });
+
+    it('withdraws only within the pinned request', function (): void {
+        $release = ReleaseTestModel::create();
+        $lead = ReviewerTestModel::create();
+
+        $lead->toggleApproval($release);
+        $request = $release->requestApproval([$lead, ReviewerTestModel::create()]);
+
+        expect(Approvals::for($release)->as($lead)->within($request)->cancel())->toBeNull();
+
+        $inRequest = $lead->approve($release);
+
+        expect(Approvals::for($release)->as($lead)->within($request)->cancel()?->is($inRequest))->toBeTrue()
+            ->and($lead->hasApproved($release))->toBeTrue();
+    });
+
+    it('refuses to withdraw within a foreign request', function (): void {
+        $release = ReleaseTestModel::create();
+        $lead = ReviewerTestModel::create();
+        $foreign = ReleaseTestModel::create()->requestApproval([$lead]);
+
+        expect(fn () => Approvals::for($release)->as($lead)->within($foreign)->cancel())
+            ->toThrow(InvalidApprovalRequestException::class);
     });
 
     it('withdraws a held rejection too', function (): void {
