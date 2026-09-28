@@ -21,10 +21,15 @@ use RoundlyConsulting\Approvals\Models\ApprovalRequestStage;
  */
 final class ApprovalChecker
 {
+    /**
+     * Whether `$actor` holds an approval of the approvable that is still in force (a
+     * decision past its expiry stops counting at once, before the sweep lapses it).
+     */
     public static function isApprovedBy(Model $approvable, Model $actor): bool
     {
         return self::decisionsBy($approvable, $actor)
             ->where('status', ApprovalStatus::Approved)
+            ->inForce()
             ->exists();
     }
 
@@ -32,6 +37,7 @@ final class ApprovalChecker
     {
         return self::decisionsBy($approvable, $actor)
             ->where('status', ApprovalStatus::Rejected)
+            ->inForce()
             ->exists();
     }
 
@@ -42,6 +48,7 @@ final class ApprovalChecker
         return $model::query()
             ->whereMorphedTo('approvable', $approvable)
             ->where('status', ApprovalStatus::Pending)
+            ->inForce()
             ->exists();
     }
 
@@ -61,11 +68,18 @@ final class ApprovalChecker
     }
 
     /**
-     * The status of the subject's latest request; `Pending` when it has none.
+     * The status of the subject's latest request; `Pending` when it has none, and
+     * `Expired` once a pending request's expiry has passed (before the sweep lapses it).
      */
     public static function status(Model $subject): ApprovalStatus
     {
-        return self::latestRequest($subject)->status ?? ApprovalStatus::Pending;
+        $request = self::latestRequest($subject);
+
+        if (! $request instanceof ApprovalRequest) {
+            return ApprovalStatus::Pending;
+        }
+
+        return $request->isOverdue() ? ApprovalStatus::Expired : $request->status;
     }
 
     public static function progress(Model $subject): ?ApprovalProgress

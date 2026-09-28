@@ -27,8 +27,8 @@ it('ships exactly the config keys it reads', function (): void {
         // Deliberately NO `excludeFromReverse` for the provider. The testing README's own
         // example excludes the service provider on the grounds that "a render is not a
         // read" — but this provider's `contributesToAbout()` closure calls
-        // `config('approvals.…')` for real (default_status, authorization.enabled,
-        // authorization.ability, expiry.default, workflows), and for several of those it
+        // `config('approvals.…')` for real (authorization.enabled, authorization.ability,
+        // expiry.default, workflows), and for several of those it
         // is the only reader in the package. Excluding it would discard readers and
         // weaken the reverse direction for nothing.
     ]);

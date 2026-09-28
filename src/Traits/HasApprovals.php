@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Models\Approval;
+use RoundlyConsulting\Approvals\Support\ApprovalChecker;
 use RoundlyConsulting\Approvals\Support\ApprovalModelResolver;
 
 /**
@@ -27,14 +28,12 @@ trait HasApprovals
     }
 
     /**
-     * Whether the given actor currently holds an approved decision for this model.
+     * Whether the given actor currently holds an approved decision for this model that
+     * is still in force (not past its expiry).
      */
     public function hasBeenApprovedBy(Model $actor): bool
     {
-        return $this->approvals()
-            ->whereMorphedTo('actor', $actor)
-            ->where('status', ApprovalStatus::Approved)
-            ->exists();
+        return ApprovalChecker::isApprovedBy($this, $actor);
     }
 
     /**
@@ -42,10 +41,7 @@ trait HasApprovals
      */
     public function hasBeenRejectedBy(Model $actor): bool
     {
-        return $this->approvals()
-            ->whereMorphedTo('actor', $actor)
-            ->where('status', ApprovalStatus::Rejected)
-            ->exists();
+        return ApprovalChecker::isRejectedBy($this, $actor);
     }
 
     public function isApprovedBy(Model $actor): bool
@@ -54,22 +50,27 @@ trait HasApprovals
     }
 
     /**
-     * Number of distinct approved decisions this model currently holds.
+     * Number of approved decisions this model currently holds that are still in force.
      */
     public function approvalCount(): int
     {
         return $this->approvals()
             ->where('status', ApprovalStatus::Approved)
+            ->inForce()
             ->count();
     }
 
     /**
+     * The pending (asked-for) decisions on this model whose reply-by deadline has not
+     * passed.
+     *
      * @return Collection<int, Approval>
      */
     public function pendingApprovals(): Collection
     {
         return $this->approvals()
             ->where('status', ApprovalStatus::Pending)
+            ->inForce()
             ->get();
     }
 }

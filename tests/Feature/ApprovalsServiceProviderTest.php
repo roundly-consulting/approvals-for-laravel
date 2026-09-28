@@ -18,7 +18,9 @@ it('merges the package config', function (): void {
         ->and(config('approvals.request_model'))->toBe(ApprovalRequest::class)
         ->and(config('approvals.stage_model'))->toBe(ApprovalRequestStage::class)
         ->and(config('approvals.delegation_model'))->toBe(ApprovalDelegation::class)
-        ->and(config('approvals.default_status'))->toBe('approved');
+        // `default_status` was documented as the status of a toggled approval but never
+        // applied; a toggle always approves, so the key is gone rather than kept as a lie.
+        ->and(config()->has('approvals.default_status'))->toBeFalse();
 });
 
 it('registers the facade alias', function (): void {
@@ -96,7 +98,6 @@ it('contributes an approvals section to about', function (string $expected): voi
     'Request model',
     'Stage model',
     'Delegation model',
-    'Default status',
     'Authorization',
     'Ability',
     'Default expiry',
@@ -115,6 +116,14 @@ it('reports authorization and expiry state in about', function (): void {
 
     $this->artisan('about --only=approvals')
         ->expectsOutputToContain('ENFORCED')
+        ->expectsOutputToContain('3600s')
+        ->assertExitCode(0);
+});
+
+it('reports an env-string default expiry in about', function (): void {
+    config()->set('approvals.expiry.default', '3600');
+
+    $this->artisan('about --only=approvals')
         ->expectsOutputToContain('3600s')
         ->assertExitCode(0);
 });

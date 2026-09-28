@@ -148,7 +148,8 @@ class ApprovalRequest extends Model
     /**
      * Evaluate the request's rule against its current decisions and persist the outcome.
      *
-     * Resolution is idempotent: once a request is final it is returned unchanged.
+     * Resolution is idempotent: once a request is final it is returned unchanged. A
+     * request past its expiry resolves as expired, whatever decisions came in.
      */
     public function resolve(): static
     {
@@ -156,7 +157,39 @@ class ApprovalRequest extends Model
             return $this;
         }
 
+        if ($this->isOverdue()) {
+            $this->finalize(ApprovalStatus::Expired);
+
+            return $this;
+        }
+
         return $this->staged ? $this->resolveStaged() : $this->resolveFlat();
+    }
+
+    /**
+     * Whether the request is still pending but its expiry has passed (at the moment,
+     * now when omitted) — it no longer accepts decisions.
+     */
+    public function isOverdue(?CarbonInterface $moment = null): bool
+    {
+        return $this->status === ApprovalStatus::Pending
+            && $this->expires_at !== null
+            && $this->expires_at->lessThanOrEqualTo($moment ?? CarbonImmutable::now());
+    }
+
+    /**
+     * Lapse the request if it is overdue: it resolves as expired, firing
+     * ApprovalRequestResolved and ApprovalStatusChanged.
+     *
+     * @return bool whether this call lapsed it
+     */
+    public function lapseIfOverdue(?CarbonInterface $moment = null): bool
+    {
+        if (! $this->isOverdue($moment)) {
+            return false;
+        }
+
+        return $this->finalize(ApprovalStatus::Expired);
     }
 
     private function resolveFlat(): static
@@ -266,9 +299,11 @@ class ApprovalRequest extends Model
      */
     private function tally(Collection $decisions, ApprovalRule $rule, int $required, ?int $quorum, array $named): DecisionTally
     {
+        // A decision past its expiry stops counting at once, before the sweep lapses it.
         $decided = $decisions->filter(
-            static fn (Approval $decision): bool => $decision->status === ApprovalStatus::Approved
-                || $decision->status === ApprovalStatus::Rejected,
+            static fn (Approval $decision): bool => ($decision->status === ApprovalStatus::Approved
+                || $decision->status === ApprovalStatus::Rejected)
+                && $decision->isInForce(),
         );
 
         $approved = $decided->where('status', ApprovalStatus::Approved);
@@ -307,7 +342,7 @@ class ApprovalRequest extends Model
      * the conditional update lets exactly one of them finalize it, so it resolves (and
      * fires its events) once.
      */
-    private function finalize(ApprovalStatus $outcome): void
+    private function finalize(ApprovalStatus $outcome): bool
     {
         $from = $this->status;
 
@@ -319,11 +354,13 @@ class ApprovalRequest extends Model
         $this->refresh();
 
         if (! $finalized) {
-            return;
+            return false;
         }
 
         ApprovalRequestResolved::dispatch($this);
         ApprovalStatusChanged::dispatch($this, $from, $outcome);
+
+        return true;
     }
 
     /**

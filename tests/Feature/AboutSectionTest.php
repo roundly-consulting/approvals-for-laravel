@@ -41,7 +41,6 @@ it('renders the approvals section without leaking the host authorization vocabul
             'Request model',
             'Stage model',
             'Delegation model',
-            'Default status',
             'Authorization',
             'Ability',
             'Default expiry',

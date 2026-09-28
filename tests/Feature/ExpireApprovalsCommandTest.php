@@ -16,7 +16,7 @@ it('expires due approvals via the command', function (): void {
     Approval::factory()->pending()->create(['expires_at' => now()->subHour()]);
 
     $this->artisan('approvals:expire')
-        ->expectsOutputToContain('Expired 1 approval(s).')
+        ->expectsOutputToContain('Expired 1 approval(s) and request(s).')
         ->assertSuccessful();
 
     expect(Approval::query()->first()->status)->toBe(ApprovalStatus::Expired);
@@ -24,6 +24,6 @@ it('expires due approvals via the command', function (): void {
 
 it('reports zero when nothing is due', function (): void {
     $this->artisan('approvals:expire')
-        ->expectsOutputToContain('Expired 0 approval(s).')
+        ->expectsOutputToContain('Expired 0 approval(s) and request(s).')
         ->assertSuccessful();
 });

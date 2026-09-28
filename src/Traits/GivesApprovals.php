@@ -8,9 +8,9 @@ use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use RoundlyConsulting\Approvals\ApprovalsManager;
-use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Models\Approval;
 use RoundlyConsulting\Approvals\Models\ApprovalDelegation;
+use RoundlyConsulting\Approvals\Support\ApprovalChecker;
 use RoundlyConsulting\Approvals\Support\ApprovalDelegationModelResolver;
 use RoundlyConsulting\Approvals\Support\ApprovalModelResolver;
 
@@ -38,14 +38,12 @@ trait GivesApprovals
     }
 
     /**
-     * Whether this actor currently holds an approved decision for the model.
+     * Whether this actor currently holds an approved decision for the model that is
+     * still in force (not past its expiry).
      */
     public function hasApproved(Model $model): bool
     {
-        return $this->givenApprovals()
-            ->whereMorphedTo('approvable', $model)
-            ->where('status', ApprovalStatus::Approved)
-            ->exists();
+        return ApprovalChecker::isApprovedBy($model, $this);
     }
 
     /**
@@ -53,10 +51,7 @@ trait GivesApprovals
      */
     public function hasRejected(Model $model): bool
     {
-        return $this->givenApprovals()
-            ->whereMorphedTo('approvable', $model)
-            ->where('status', ApprovalStatus::Rejected)
-            ->exists();
+        return ApprovalChecker::isRejectedBy($model, $this);
     }
 
     public function approvalFor(Model $model): ?Approval

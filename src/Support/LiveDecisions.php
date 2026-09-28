@@ -36,9 +36,9 @@ final class LiveDecisions
     }
 
     /**
-     * The latest live decision `$model` can withdraw on the approvable: one it holds as
-     * the actor, else one it made on a delegator's behalf. Limited to one request when
-     * given.
+     * The latest live, in-force decision `$model` can withdraw on the approvable: one it
+     * holds as the actor, else one it made on a delegator's behalf. Limited to one
+     * request when given.
      */
     public function withdrawableBy(Model $model, Model $approvable, ?ApprovalRequest $request = null): ?Approval
     {
@@ -53,7 +53,8 @@ final class LiveDecisions
         $query = $class::query()
             ->whereMorphedTo($relation, $model)
             ->whereMorphedTo('approvable', $approvable)
-            ->live();
+            ->live()
+            ->inForce();
 
         if ($request instanceof ApprovalRequest) {
             $query->where('approval_request_id', $request->getKey());

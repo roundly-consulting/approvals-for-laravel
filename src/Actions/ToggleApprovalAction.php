@@ -37,6 +37,8 @@ final class ToggleApprovalAction
 
         $target = $this->decisionTarget($actor, $approvable, null);
 
+        $this->lapseOverdueDecision($target);
+
         $live = app(LiveDecisions::class)->in($target);
 
         if ($live instanceof Approval && $live->status === ApprovalStatus::Approved) {

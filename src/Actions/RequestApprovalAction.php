@@ -37,6 +37,8 @@ final class RequestApprovalAction
 
         $target = $this->decisionTarget($actor, $approvable, $request, actsForOthers: false);
 
+        $this->lapseOverdueDecision($target);
+
         $asked = null;
 
         $approval = $this->writeInSlot(function () use ($target, $data, &$asked): Approval {

@@ -169,6 +169,30 @@ class Approval extends Model
     }
 
     /**
+     * Decisions still in force at the moment (now when omitted): no expiry, or one that
+     * has not passed yet. A decision past its expiry stops counting at once, before the
+     * `approvals:expire` sweep gets to it.
+     *
+     * @param  Builder<Approval>  $query
+     */
+    public function scopeInForce(Builder $query, ?CarbonInterface $moment = null): void
+    {
+        $moment ??= CarbonImmutable::now();
+
+        $query->where(function (Builder $q) use ($moment): void {
+            $q->whereNull('expires_at')->orWhere('expires_at', '>', $moment);
+        });
+    }
+
+    /**
+     * Whether the decision is still in force at the moment (now when omitted).
+     */
+    public function isInForce(?CarbonInterface $moment = null): bool
+    {
+        return $this->expires_at === null || $this->expires_at->greaterThan($moment ?? CarbonImmutable::now());
+    }
+
+    /**
      * @param  Builder<Approval>  $query
      */
     public function scopeExpiringBefore(Builder $query, CarbonInterface $moment): void
@@ -176,16 +200,17 @@ class Approval extends Model
         $query->whereNotNull('expires_at')->where('expires_at', '<=', $moment);
     }
 
+    /**
+     * Approve the decision, valid until `$expiresAt` (for good when null). An answered
+     * ask's reply-by deadline is not carried over as the approval's own expiry.
+     */
     public function approve(?string $reason = null, ?CarbonInterface $expiresAt = null): static
     {
         $this->transitionTo(ApprovalStatus::Approved);
 
         $this->reason = $reason ?? $this->reason;
         $this->decided_at = CarbonImmutable::now();
-
-        if ($expiresAt !== null) {
-            $this->expires_at = CarbonImmutable::instance($expiresAt->toDateTimeImmutable());
-        }
+        $this->expires_at = $expiresAt === null ? null : CarbonImmutable::instance($expiresAt->toDateTimeImmutable());
 
         $this->save();
 

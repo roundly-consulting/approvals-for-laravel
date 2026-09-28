@@ -166,7 +166,7 @@ final class ApprovalsFake extends ApprovalsManager
 
     /**
      * Assert an expiry sweep ran — and, when `$count` is given, that the sweeps lapsed
-     * exactly that many decisions in total.
+     * exactly that many decisions and requests in total.
      */
     public function assertExpired(?int $count = null): void
     {
@@ -180,7 +180,7 @@ final class ApprovalsFake extends ApprovalsManager
     }
 
     /**
-     * Assert no decision was lapsed by an expiry sweep.
+     * Assert no decision or request was lapsed by an expiry sweep.
      */
     public function assertNothingExpired(): void
     {

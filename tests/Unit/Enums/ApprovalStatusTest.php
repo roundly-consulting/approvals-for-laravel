@@ -40,6 +40,7 @@ it('forbids transitioning pending to pending', function (): void {
 
 it('allows an approved approval to be withdrawn', function (): void {
     expect(ApprovalStatus::Approved->canTransitionTo(ApprovalStatus::Cancelled))->toBeTrue()
+        ->and(ApprovalStatus::Approved->canTransitionTo(ApprovalStatus::Expired))->toBeTrue()
         ->and(ApprovalStatus::Approved->canTransitionTo(ApprovalStatus::Rejected))->toBeFalse()
         ->and(ApprovalStatus::Approved->canTransitionTo(ApprovalStatus::Approved))->toBeFalse();
 });

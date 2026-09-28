@@ -59,13 +59,15 @@ enum ApprovalStatus: string
      *
      * A pending approval may move to any decided/withdrawn/expired state. A decided
      * approval (approved or rejected) may still be cancelled — withdrawn by its actor, or
-     * superseded when the actor changes their mind. Cancelled and expired are terminal.
+     * superseded when the actor changes their mind — and an approval lapses (expires)
+     * once its expiry passes. Cancelled and expired are terminal.
      */
     public function canTransitionTo(self $to): bool
     {
         return match ($this) {
             self::Pending => $to !== self::Pending,
-            self::Approved, self::Rejected => $to === self::Cancelled,
+            self::Approved => $to === self::Cancelled || $to === self::Expired,
+            self::Rejected => $to === self::Cancelled,
             self::Cancelled, self::Expired => false,
         };
     }

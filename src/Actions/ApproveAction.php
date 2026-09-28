@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Approvals\Actions;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Approvals\Actions\Concerns\AuthorizesDecisions;
 use RoundlyConsulting\Approvals\Actions\Concerns\ResolvesApproval;
@@ -13,6 +14,7 @@ use RoundlyConsulting\Approvals\Events\ApprovalApproved;
 use RoundlyConsulting\Approvals\Events\ApprovalStatusChanged;
 use RoundlyConsulting\Approvals\Models\Approval;
 use RoundlyConsulting\Approvals\Models\ApprovalRequest;
+use RoundlyConsulting\Approvals\Support\ApprovalLifetime;
 
 final class ApproveAction
 {
@@ -29,6 +31,10 @@ final class ApproveAction
         $this->authorizeDecision($actor, $approvable);
 
         $data ??= DecisionData::approved();
+
+        if ($data->expiresAt === null && ($lifetime = ApprovalLifetime::seconds()) !== null) {
+            $data = DecisionData::approved($data->reason, CarbonImmutable::now()->addSeconds($lifetime), $data->weight);
+        }
 
         $target = $this->decisionTarget($actor, $approvable, $request);
 

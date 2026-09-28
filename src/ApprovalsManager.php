@@ -110,9 +110,10 @@ class ApprovalsManager
     }
 
     /**
-     * Lapse pending decisions whose expiry is at or before the moment (now when omitted).
+     * Lapse decisions (pending asks and approvals) and pending requests whose expiry is at
+     * or before the moment (now when omitted).
      *
-     * @return int the number of decisions expired
+     * @return int the number of decisions and requests expired
      */
     public function expire(?CarbonInterface $now = null): int
     {

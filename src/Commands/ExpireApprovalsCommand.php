@@ -11,13 +11,13 @@ final class ExpireApprovalsCommand extends Command
 {
     protected $signature = 'approvals:expire';
 
-    protected $description = 'Lapse pending approvals whose expiry has passed';
+    protected $description = 'Lapse approvals, asks and approval requests whose expiry has passed';
 
     public function handle(ExpireApprovalsAction $action): int
     {
         $count = $action->execute();
 
-        $this->info("Expired {$count} approval(s).");
+        $this->info("Expired {$count} approval(s) and request(s).");
 
         return self::SUCCESS;
     }

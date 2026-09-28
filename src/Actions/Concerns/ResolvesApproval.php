@@ -12,6 +12,7 @@ use RoundlyConsulting\Approvals\DataTransferObjects\DecisionTarget;
 use RoundlyConsulting\Approvals\DataTransferObjects\NamedApprover;
 use RoundlyConsulting\Approvals\DataTransferObjects\RecordedDecision;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
+use RoundlyConsulting\Approvals\Events\ApprovalExpired;
 use RoundlyConsulting\Approvals\Events\ApprovalStatusChanged;
 use RoundlyConsulting\Approvals\Exceptions\InvalidApprovalRequestException;
 use RoundlyConsulting\Approvals\Exceptions\UnauthorizedApprovalException;
@@ -85,6 +86,26 @@ trait ResolvesApproval
     }
 
     /**
+     * Lapse the actor's live decision in the target's slot if its expiry has passed, so
+     * the slot is free for a new decision (the unique index would refuse one otherwise).
+     */
+    protected function lapseOverdueDecision(DecisionTarget $target): void
+    {
+        $live = app(LiveDecisions::class)->in($target);
+
+        if (! $live instanceof Approval || $live->isInForce()) {
+            return;
+        }
+
+        $from = $live->status;
+
+        $live->markExpired();
+
+        ApprovalExpired::dispatch($live);
+        ApprovalStatusChanged::dispatch($live, $from, ApprovalStatus::Expired, $target->actor);
+    }
+
+    /**
      * Record `$to` (approved or rejected) as the actor's live decision in the target's
      * slot, and return what changed so the caller can announce it.
      *
@@ -98,6 +119,8 @@ trait ResolvesApproval
      */
     protected function recordDecision(DecisionTarget $target, ApprovalStatus $to, DecisionData $data): RecordedDecision
     {
+        $this->lapseOverdueDecision($target);
+
         return $this->writeInSlot(fn (): RecordedDecision => $this->writeDecision($target, $to, $data));
     }
 
@@ -202,26 +225,42 @@ trait ResolvesApproval
 
     /**
      * Resolve the request to attach a decision to: the one passed explicitly (which
-     * must belong to the approvable), or the latest open request whose subject is the
-     * approvable.
+     * must belong to the approvable and not have expired), or the latest open request
+     * whose subject is the approvable.
+     *
+     * A request whose expiry has passed no longer accepts decisions: it is lapsed on the
+     * spot (resolving as expired) rather than waiting for the sweep. A decision pinned to
+     * it is refused; an unpinned one no longer counts towards it.
      */
     protected function requestFor(Model $approvable, ?ApprovalRequest $request): ?ApprovalRequest
     {
         if ($request instanceof ApprovalRequest) {
             $this->ensureRequestBelongsTo($request, $approvable);
 
+            $request->lapseIfOverdue();
+
+            if ($request->status === ApprovalStatus::Expired) {
+                throw InvalidApprovalRequestException::expired($request);
+            }
+
             return $request;
         }
 
         $model = ApprovalRequestModelResolver::class();
 
-        $found = $model::query()
+        $pending = $model::query()
             ->whereMorphedTo('subject', $approvable)
             ->where('status', ApprovalStatus::Pending)
             ->latest('id')
-            ->first();
+            ->get();
 
-        return $found instanceof ApprovalRequest ? $found : null;
+        foreach ($pending as $candidate) {
+            if (! $candidate->lapseIfOverdue()) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 
     /**

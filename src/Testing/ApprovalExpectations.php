@@ -81,6 +81,7 @@ final class ApprovalExpectations
         $rejected = $approvalModel::query()
             ->whereMorphedTo('approvable', $model)
             ->where('status', ApprovalStatus::Rejected)
+            ->inForce()
             ->exists();
 
         if ($rejected) {
@@ -90,6 +91,7 @@ final class ApprovalExpectations
         $approved = $approvalModel::query()
             ->whereMorphedTo('approvable', $model)
             ->where('status', ApprovalStatus::Approved)
+            ->inForce()
             ->exists();
 
         return $approved ? ApprovalStatus::Approved : ApprovalStatus::Pending;
