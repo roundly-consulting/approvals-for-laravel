@@ -6,12 +6,11 @@ namespace RoundlyConsulting\Approvals\Actions;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
+use RoundlyConsulting\Approvals\DataTransferObjects\ApprovalRequestData;
 use RoundlyConsulting\Approvals\DataTransferObjects\StageDefinition;
 use RoundlyConsulting\Approvals\DataTransferObjects\WorkflowPreset;
-use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Exceptions\UnknownWorkflowException;
 use RoundlyConsulting\Approvals\Models\ApprovalRequest;
-use RoundlyConsulting\Approvals\Support\ApprovalRequestModelResolver;
 
 /**
  * Opens an approval request from a resolved workflow preset.
@@ -19,8 +18,13 @@ use RoundlyConsulting\Approvals\Support\ApprovalRequestModelResolver;
  * For a flat preset, $approvers is a flat list of approvers. For a staged preset,
  * $approvers is a list of approver lists, one per stage, in the preset's stage order.
  */
-final class OpenWorkflowRequestAction
+final readonly class OpenWorkflowRequestAction
 {
+    public function __construct(
+        private OpenApprovalRequestAction $openRequest,
+        private RequestStagedApprovalAction $openStagedRequest,
+    ) {}
+
     /**
      * @param  array<int, Model|list<Model>>  $approvers
      */
@@ -38,22 +42,15 @@ final class OpenWorkflowRequestAction
     {
         $flat = $this->flatten($approvers);
 
-        $requestModel = ApprovalRequestModelResolver::class();
-
-        $request = new $requestModel;
-        $request->subject_id = $subject->getKey();
-        $request->subject_type = $subject->getMorphClass();
-        $request->rule = $preset->rule;
-        $request->quorum = $preset->quorum;
-        $request->required_approvers = $preset->requiredApprovers ?? count($flat);
-        $request->status = ApprovalStatus::Pending;
-        $request->workflow = $preset->name;
-        $request->expires_at = $preset->expiry === null
-            ? null
-            : CarbonImmutable::now()->addSeconds($preset->expiry);
-        $request->save();
-
-        return $request;
+        return $this->openRequest->execute(new ApprovalRequestData(
+            subject: $subject,
+            approvers: $flat,
+            rule: $preset->rule,
+            quorum: $preset->quorum,
+            expiresAt: $preset->expiry === null ? null : CarbonImmutable::now()->addSeconds($preset->expiry),
+            requiredApprovers: $preset->requiredApprovers,
+            workflow: $preset->name,
+        ));
     }
 
     /**
@@ -83,7 +80,7 @@ final class OpenWorkflowRequestAction
             );
         }
 
-        return app(RequestStagedApprovalAction::class)->execute(
+        return $this->openStagedRequest->execute(
             $subject,
             $definitions,
             $preset->rejectOnStageRejection,

@@ -12,6 +12,8 @@ final readonly class ApprovalRequestData
 {
     /**
      * @param  list<Model>  $approvers
+     * @param  int|null  $requiredApprovers  the headcount (or weight) in play; defaults to count($approvers)
+     * @param  string|null  $workflow  the preset the request was opened from, if any
      */
     public function __construct(
         public Model $subject,
@@ -19,5 +21,7 @@ final readonly class ApprovalRequestData
         public ApprovalRule $rule = ApprovalRule::Unanimous,
         public ?int $quorum = null,
         public ?CarbonInterface $expiresAt = null,
+        public ?int $requiredApprovers = null,
+        public ?string $workflow = null,
     ) {}
 }
