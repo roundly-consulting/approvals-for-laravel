@@ -9,7 +9,7 @@ use RoundlyConsulting\Approvals\Enums\ApprovalRule;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Events\ApprovalExpired;
 use RoundlyConsulting\Approvals\Events\ApprovalRequestResolved;
-use RoundlyConsulting\Approvals\Exceptions\InvalidApprovalRequestException;
+use RoundlyConsulting\Approvals\Exceptions\ClosedApprovalRequestException;
 use RoundlyConsulting\Approvals\Facades\Approvals;
 use RoundlyConsulting\Approvals\Models\Approval;
 use RoundlyConsulting\Approvals\Tests\DeploymentTestModel;
@@ -138,10 +138,9 @@ describe('an expiring request', function (): void {
         expect(Approvals::status($release))->toBe(ApprovalStatus::Expired)
             ->and($release->isPendingApproval())->toBeFalse();
 
-        $approval = $lead->approve($release);
-
-        expect($approval->approval_request_id)->toBeNull()
-            ->and($request->fresh()?->status)->toBe(ApprovalStatus::Expired);
+        expect(fn () => $lead->approve($release))->toThrow(ClosedApprovalRequestException::class, 'is closed (expired)')
+            ->and($request->fresh()?->status)->toBe(ApprovalStatus::Expired)
+            ->and(Approval::query()->count())->toBe(0);
     });
 
     it('refuses a decision pinned to an overdue request', function (): void {
@@ -153,7 +152,7 @@ describe('an expiring request', function (): void {
         twoDaysLater();
 
         expect(fn () => Approvals::for($release)->as($lead)->within($request)->approve())
-            ->toThrow(InvalidApprovalRequestException::class, 'expired')
+            ->toThrow(ClosedApprovalRequestException::class, 'is closed (expired)')
             ->and(Approval::query()->count())->toBe(0);
     });
 

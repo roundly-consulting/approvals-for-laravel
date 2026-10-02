@@ -57,7 +57,9 @@ final class PendingApproval
 
     /**
      * Pin the decision to this request instead of the approvable's latest open one.
-     * The request must belong to the approvable.
+     * The request must belong to the approvable and still be open: a closed one
+     * (approved, rejected, cancelled or expired) refuses the decision with a
+     * ClosedApprovalRequestException.
      */
     public function within(ApprovalRequest $request): self
     {

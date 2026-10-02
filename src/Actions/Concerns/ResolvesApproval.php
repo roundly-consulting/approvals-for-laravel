@@ -14,11 +14,13 @@ use RoundlyConsulting\Approvals\DataTransferObjects\RecordedDecision;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Events\ApprovalExpired;
 use RoundlyConsulting\Approvals\Events\ApprovalStatusChanged;
+use RoundlyConsulting\Approvals\Exceptions\ClosedApprovalRequestException;
 use RoundlyConsulting\Approvals\Exceptions\InvalidApprovalRequestException;
 use RoundlyConsulting\Approvals\Exceptions\UnauthorizedApprovalException;
 use RoundlyConsulting\Approvals\Models\Approval;
 use RoundlyConsulting\Approvals\Models\ApprovalRequest;
 use RoundlyConsulting\Approvals\Models\ApprovalRequestStage;
+use RoundlyConsulting\Approvals\Support\ApprovalChecker;
 use RoundlyConsulting\Approvals\Support\ApprovalModelResolver;
 use RoundlyConsulting\Approvals\Support\ApprovalRequestModelResolver;
 use RoundlyConsulting\Approvals\Support\DelegationResolver;
@@ -155,6 +157,8 @@ trait ResolvesApproval
 
     private function writeDecision(DecisionTarget $target, ApprovalStatus $to, DecisionData $data): RecordedDecision
     {
+        $this->ensureRoundStillOpen($target->request);
+
         $live = app(LiveDecisions::class)->in($target);
 
         if ($live instanceof Approval && $live->status === $to) {
@@ -224,23 +228,30 @@ trait ResolvesApproval
     }
 
     /**
-     * Resolve the request to attach a decision to: the one passed explicitly (which
-     * must belong to the approvable and not have expired), or the latest open request
-     * whose subject is the approvable.
+     * Resolve the request a decision (or a withdrawal) belongs to: the one passed
+     * explicitly (which must belong to the approvable and still be open), or the latest
+     * open request whose subject is the approvable.
      *
-     * A request whose expiry has passed no longer accepts decisions: it is lapsed on the
-     * spot (resolving as expired) rather than waiting for the sweep. A decision pinned to
-     * it is refused; an unpinned one no longer counts towards it.
+     * A request whose expiry has passed is lapsed on the spot (resolving as expired)
+     * rather than waiting for the sweep. A closed request — approved, rejected, cancelled
+     * or expired — accepts nothing more: a decision pinned to it is refused, and so is an
+     * unpinned one on a subject whose requests are all closed, which used to land as a
+     * standalone decision after the round was over. Only a subject that never had a
+     * request takes standalone decisions (null is returned).
+     *
+     * @throws ClosedApprovalRequestException
      */
     protected function requestFor(Model $approvable, ?ApprovalRequest $request): ?ApprovalRequest
     {
         if ($request instanceof ApprovalRequest) {
             $this->ensureRequestBelongsTo($request, $approvable);
 
+            // The stored status, not the caller's copy: it may predate the round closing.
+            $request->refresh();
             $request->lapseIfOverdue();
 
-            if ($request->status === ApprovalStatus::Expired) {
-                throw InvalidApprovalRequestException::expired($request);
+            if ($request->status !== ApprovalStatus::Pending) {
+                throw ClosedApprovalRequestException::for($request);
             }
 
             return $request;
@@ -260,7 +271,34 @@ trait ResolvesApproval
             }
         }
 
+        $latest = ApprovalChecker::latestRequest($approvable);
+
+        if ($latest instanceof ApprovalRequest) {
+            throw ClosedApprovalRequestException::for($latest);
+        }
+
         return null;
+    }
+
+    /**
+     * Run inside the write's transaction: lock the request row and refuse the write when
+     * the round closed after the request was resolved (a concurrent decision resolved it,
+     * or the host closed it). The lock holds a resolution back until the write commits,
+     * so a decision or a withdrawal is never recorded on a closed request.
+     *
+     * @throws ClosedApprovalRequestException
+     */
+    protected function ensureRoundStillOpen(?ApprovalRequest $request): void
+    {
+        if (! $request instanceof ApprovalRequest) {
+            return;
+        }
+
+        $stored = $request->newQuery()->whereKey($request->getKey())->lockForUpdate()->first();
+
+        if ($stored instanceof ApprovalRequest && $stored->status !== ApprovalStatus::Pending) {
+            throw ClosedApprovalRequestException::for($stored);
+        }
     }
 
     /**

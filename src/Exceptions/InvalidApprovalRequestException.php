@@ -45,14 +45,6 @@ final class InvalidApprovalRequestException extends ApprovalsException
         return new self("An approval request cannot require {$required} approvals from {$named} named approver(s).");
     }
 
-    /**
-     * A decision was pinned to a request whose expiry has passed.
-     */
-    public static function expired(ApprovalRequest $request): self
-    {
-        return new self('Approval request ['.$request->getKey().'] has expired and no longer accepts decisions.');
-    }
-
     public static function thresholdBelowOne(int $quorum): self
     {
         return new self("An approval request's quorum must be at least 1, {$quorum} given.");

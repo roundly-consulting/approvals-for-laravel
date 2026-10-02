@@ -22,7 +22,13 @@ final class CancelApprovalAction
     /**
      * Withdraw the actor's live decision (pending, approved or rejected) on the
      * approvable, if it holds one — or, failing that, the latest live decision it made
-     * on a delegator's behalf. Limited to one request when given.
+     * on a delegator's behalf.
+     *
+     * A withdrawal reaches the same round a decision would: the pinned request, else the
+     * approvable's open request, else (a model that never had a request) its standalone
+     * decisions. Once that round is closed nothing can be withdrawn from it: the
+     * withdrawal is refused with a ClosedApprovalRequestException and the decision keeps
+     * counting.
      */
     public function execute(
         Model $actor,
@@ -33,19 +39,27 @@ final class CancelApprovalAction
         // Withdrawing a decision changes the outcome as much as making one.
         $this->authorizeDecision($actor, $approvable);
 
-        if ($request instanceof ApprovalRequest) {
-            $this->ensureRequestBelongsTo($request, $approvable);
-        }
+        $request = $this->requestFor($approvable, $request);
 
-        $approval = app(LiveDecisions::class)->withdrawableBy($actor, $approvable, $request);
+        $from = null;
 
-        if (! $approval instanceof Approval) {
+        $approval = $this->writeInSlot(function () use ($actor, $approvable, $reason, $request, &$from): ?Approval {
+            $this->ensureRoundStillOpen($request);
+
+            $approval = app(LiveDecisions::class)->withdrawableBy($actor, $approvable, $request);
+
+            if (! $approval instanceof Approval) {
+                return null;
+            }
+
+            $from = $approval->status;
+
+            return $approval->cancel($reason);
+        });
+
+        if (! $approval instanceof Approval || ! $from instanceof ApprovalStatus) {
             return null;
         }
-
-        $from = $approval->status;
-
-        $approval->cancel($reason);
 
         ApprovalCancelled::dispatch($approval);
         ApprovalStatusChanged::dispatch($approval, $from, ApprovalStatus::Cancelled, $actor);

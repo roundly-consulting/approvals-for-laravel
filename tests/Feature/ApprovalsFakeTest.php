@@ -49,7 +49,8 @@ it('records calls made through the model traits, an injected manager and the tes
     $release->requestApproval([$a, $b]);
     $a->approve($release);
     app(ApprovalsManager::class)->for($release)->as($b)->reject();
-    $this->approveAs($release, actor: $c);
+    // The round above is closed (b rejected it): the helper decides on another subject.
+    $this->approveAs(ReleaseTestModel::create(), actor: $c);
 
     expect(array_map(
         static fn (RecordedApprovalOperation $recorded): ApprovalOperation => $recorded->operation,

@@ -22,7 +22,8 @@ final class RequestApprovalAction
     /**
      * Ask the actor for a decision: record a pending decision in its slot (the given
      * request, the approvable's latest open request, or standalone). When the actor
-     * already holds a live decision there, that decision is returned unchanged.
+     * already holds a live decision there, that decision is returned unchanged. A closed
+     * round refuses it (ClosedApprovalRequestException).
      */
     public function execute(
         Model $actor,
@@ -43,6 +44,8 @@ final class RequestApprovalAction
 
         $approval = $this->writeInSlot(function () use ($target, $data, &$asked): Approval {
             $asked = null;
+
+            $this->ensureRoundStillOpen($target->request);
 
             $live = app(LiveDecisions::class)->in($target);
 

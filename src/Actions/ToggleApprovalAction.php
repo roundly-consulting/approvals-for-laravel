@@ -27,7 +27,7 @@ final class ToggleApprovalAction
      * (the approvable's open request, or standalone) it approves — through the same path
      * as approve(), so the gate, delegation and the request's rule all apply, and a
      * held rejection is superseded. With a live approval it withdraws and soft-deletes
-     * it.
+     * it. Either way a closed round refuses it (ClosedApprovalRequestException).
      *
      * @return bool true when the approval was created, false when it was removed
      */
@@ -42,8 +42,12 @@ final class ToggleApprovalAction
         $live = app(LiveDecisions::class)->in($target);
 
         if ($live instanceof Approval && $live->status === ApprovalStatus::Approved) {
-            $live->cancel();
-            $live->delete();
+            $this->writeInSlot(function () use ($target, $live): void {
+                $this->ensureRoundStillOpen($target->request);
+
+                $live->cancel();
+                $live->delete();
+            });
 
             ApprovalStatusChanged::dispatch($live, ApprovalStatus::Approved, ApprovalStatus::Cancelled, $target->actor);
             ApprovalToggled::dispatch($actor, $approvable, false);
