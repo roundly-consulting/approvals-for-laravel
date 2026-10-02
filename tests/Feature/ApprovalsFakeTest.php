@@ -195,6 +195,24 @@ describe('assertions', function (): void {
             ->and(fn () => $this->fake->assertNothingExpired())->toThrow(ExpectationFailedException::class, '1 decision(s)');
     });
 
+    it('assertExpired narrowed to the sweeps of one subject type', function (): void {
+        Approvals::for($this->release)->as($this->reviewer)->expiresIn(-60)->ask();
+        Approvals::expire(subjectType: ReleaseTestModel::class);
+
+        $this->fake->assertExpired(subjectType: ReleaseTestModel::class);
+        $this->fake->assertExpired(1, ReleaseTestModel::class);
+        expect(fn () => $this->fake->assertExpired(subjectType: ReviewerTestModel::class))
+            ->toThrow(ExpectationFailedException::class, 'of ['.ReviewerTestModel::class.']')
+            ->and(fn () => $this->fake->assertExpired(2, ReleaseTestModel::class))->toThrow(ExpectationFailedException::class);
+    });
+
+    it('assertExpired with a type ignores app-wide sweeps', function (): void {
+        Approvals::expire();
+
+        expect(fn () => $this->fake->assertExpired(subjectType: ReleaseTestModel::class))
+            ->toThrow(ExpectationFailedException::class, 'none did');
+    });
+
     it('assertNothingExpired passes when a sweep lapsed nothing', function (): void {
         Approvals::expire();
 

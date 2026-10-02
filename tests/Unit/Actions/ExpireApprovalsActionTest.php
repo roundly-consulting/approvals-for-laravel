@@ -8,6 +8,7 @@ use RoundlyConsulting\Approvals\Actions\ExpireApprovalsAction;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Events\ApprovalExpired;
 use RoundlyConsulting\Approvals\Models\Approval;
+use RoundlyConsulting\Approvals\Models\ApprovalRequest;
 
 afterEach(function (): void {
     CarbonImmutable::setTestNow();
@@ -42,4 +43,19 @@ it('accepts an explicit moment', function (): void {
 
     expect($count)->toBe(1)
         ->and(Approval::query()->first()->status)->toBe(ApprovalStatus::Expired);
+});
+
+it('limits the sweep to one approvable type', function (): void {
+    CarbonImmutable::setTestNow('2026-06-19 12:00:00');
+
+    Approval::factory()->pending()->create(['approvable_type' => 'invoice', 'expires_at' => now()->subHour()]);
+    Approval::factory()->approved()->create(['approvable_type' => 'invoice', 'expires_at' => now()->subHour()]);
+    $other = Approval::factory()->pending()->create(['approvable_type' => 'order', 'expires_at' => now()->subHour()]);
+    ApprovalRequest::factory()->create(['subject_type' => 'invoice', 'expires_at' => now()->subHour()]);
+    $otherRequest = ApprovalRequest::factory()->create(['subject_type' => 'order', 'expires_at' => now()->subHour()]);
+
+    expect(app(ExpireApprovalsAction::class)->execute(subjectType: 'invoice'))->toBe(3)
+        ->and($other->fresh()?->status)->toBe(ApprovalStatus::Pending)
+        ->and($otherRequest->fresh()?->status)->toBe(ApprovalStatus::Pending)
+        ->and(app(ExpireApprovalsAction::class)->execute())->toBe(2);
 });

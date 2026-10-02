@@ -111,17 +111,18 @@ class ApprovalsManager
 
     /**
      * Lapse decisions (pending asks and approvals) and pending requests whose expiry is at
-     * or before the moment (now when omitted).
+     * or before the moment (now when omitted) — only those on one subject type (a model
+     * class or its morph alias) when given, app-wide otherwise.
      *
      * @return int the number of decisions and requests expired
      */
-    public function expire(?CarbonInterface $now = null): int
+    public function expire(?CarbonInterface $now = null, ?string $subjectType = null): int
     {
         return $this->perform(
             ApprovalOperation::Expire,
             ExpireApprovalsAction::class,
-            static fn (ExpireApprovalsAction $action): int => $action->execute($now),
-            ['now' => $now],
+            static fn (ExpireApprovalsAction $action): int => $action->execute($now, $subjectType),
+            ['now' => $now, 'subjectType' => $subjectType],
         );
     }
 

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Event;
 use RoundlyConsulting\Approvals\Enums\ApprovalRule;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
@@ -178,5 +179,56 @@ describe('an expiring request', function (): void {
 
         expect(Approvals::expire())->toBe(1)
             ->and($request->fresh()?->status)->toBe(ApprovalStatus::Expired);
+    });
+});
+
+describe('a sweep scoped to one subject type', function (): void {
+    afterEach(fn () => Relation::morphMap([], false));
+
+    it('lapses only that type\'s decisions and requests', function (): void {
+        $lead = ReviewerTestModel::create();
+
+        $releaseRequest = Approvals::request(ReleaseTestModel::create())->from([$lead])->expiresIn(60)->open();
+        $deploymentRequest = Approvals::request(DeploymentTestModel::create())->from([$lead])->expiresIn(60)->open();
+        $releaseApproval = Approvals::for(ReleaseTestModel::create())->as($lead)->expiresIn(60)->approve();
+        $deploymentAsk = Approvals::for(DeploymentTestModel::create())->as($lead)->expiresIn(60)->ask();
+
+        twoDaysLater();
+
+        expect(Approvals::expire(subjectType: ReleaseTestModel::class))->toBe(2)
+            ->and($releaseRequest->fresh()?->status)->toBe(ApprovalStatus::Expired)
+            ->and($releaseApproval->fresh()?->status)->toBe(ApprovalStatus::Expired)
+            ->and($deploymentRequest->fresh()?->status)->toBe(ApprovalStatus::Pending)
+            ->and($deploymentAsk->fresh()?->status)->toBe(ApprovalStatus::Pending);
+
+        // Without a type the sweep stays app-wide.
+        expect(Approvals::expire())->toBe(2)
+            ->and($deploymentRequest->fresh()?->status)->toBe(ApprovalStatus::Expired)
+            ->and($deploymentAsk->fresh()?->status)->toBe(ApprovalStatus::Expired);
+    });
+
+    it('matches a morph-mapped type given as its alias or its class', function (): void {
+        Relation::morphMap(['release' => ReleaseTestModel::class]);
+
+        $lead = ReviewerTestModel::create();
+        Approvals::for(ReleaseTestModel::create())->as($lead)->expiresIn(60)->approve();
+        Approvals::for(ReleaseTestModel::create())->as($lead)->expiresIn(60)->approve();
+        $kept = Approvals::for(DeploymentTestModel::create())->as($lead)->expiresIn(60)->approve();
+
+        twoDaysLater();
+
+        expect(Approvals::expire(subjectType: 'release'))->toBe(2)
+            ->and(Approvals::expire(subjectType: ReleaseTestModel::class))->toBe(0)
+            ->and($kept->fresh()?->status)->toBe(ApprovalStatus::Approved);
+    });
+
+    it('resolves the morph alias of a class-string', function (): void {
+        Relation::morphMap(['release' => ReleaseTestModel::class]);
+
+        Approvals::for(ReleaseTestModel::create())->as(ReviewerTestModel::create())->expiresIn(60)->ask();
+
+        twoDaysLater();
+
+        expect(Approvals::expire(subjectType: ReleaseTestModel::class))->toBe(1);
     });
 });

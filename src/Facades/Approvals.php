@@ -30,7 +30,7 @@ use RoundlyConsulting\Approvals\Testing\RecordedApprovalOperation;
  * @method static ApprovalRequestStage|null currentStage(Model $subject)
  * @method static DelegationsHandle delegations(Model $delegator)
  * @method static ApprovalDelegation|null delegationFor(Model $delegate, ?CarbonInterface $at = null)
- * @method static int expire(?CarbonInterface $now = null)
+ * @method static int expire(?CarbonInterface $now = null, ?string $subjectType = null)
  * @method static ApprovalsFake fake()
  * @method static list<RecordedApprovalOperation> recorded(?ApprovalOperation $operation = null)
  * @method static void assertApproved(Model $approvable, ?Model $by = null)
@@ -49,7 +49,7 @@ use RoundlyConsulting\Approvals\Testing\RecordedApprovalOperation;
  * @method static void assertNothingDelegated()
  * @method static void assertRevoked(Model $delegator, ?Model $delegate = null)
  * @method static void assertNothingRevoked()
- * @method static void assertExpired(?int $count = null)
+ * @method static void assertExpired(?int $count = null, ?string $subjectType = null)
  * @method static void assertNothingExpired()
  *
  * @see ApprovalsManager

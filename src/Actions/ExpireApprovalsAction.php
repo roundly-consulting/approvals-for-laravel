@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Approvals\Actions;
 
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
@@ -14,6 +15,7 @@ use RoundlyConsulting\Approvals\Events\ApprovalStatusChanged;
 use RoundlyConsulting\Approvals\Models\Approval;
 use RoundlyConsulting\Approvals\Support\ApprovalModelResolver;
 use RoundlyConsulting\Approvals\Support\ApprovalRequestModelResolver;
+use RoundlyConsulting\Approvals\Support\MorphType;
 
 final class ExpireApprovalsAction
 {
@@ -21,22 +23,30 @@ final class ExpireApprovalsAction
      * Lapse every decision (pending or approved) and every pending request whose expiry
      * is at or before the given moment (now when omitted).
      *
+     * With a subject type — a model class or its morph alias — only decisions on that
+     * type of approvable and requests for that type of subject are lapsed; without one
+     * the sweep is app-wide.
+     *
      * @return int the number of decisions and requests expired
      */
-    public function execute(?CarbonInterface $now = null): int
+    public function execute(?CarbonInterface $now = null, ?string $subjectType = null): int
     {
         $now ??= CarbonImmutable::now();
 
-        return $this->expireDecisions($now) + $this->expireRequests($now);
+        // Rows store the morph alias when the host maps one: a class-string must match it.
+        $subjectType = $subjectType === null ? null : MorphType::of($subjectType);
+
+        return $this->expireDecisions($now, $subjectType) + $this->expireRequests($now, $subjectType);
     }
 
-    private function expireDecisions(CarbonInterface $now): int
+    private function expireDecisions(CarbonInterface $now, ?string $subjectType): int
     {
         $model = ApprovalModelResolver::class();
 
         $approvals = $model::query()
             ->whereIn('status', [ApprovalStatus::Pending, ApprovalStatus::Approved])
             ->expiringBefore($now)
+            ->when($subjectType !== null, static fn (Builder $query): Builder => $query->where('approvable_type', $subjectType))
             ->get();
 
         foreach ($approvals as $approval) {
@@ -46,7 +56,7 @@ final class ExpireApprovalsAction
         return $approvals->count();
     }
 
-    private function expireRequests(CarbonInterface $now): int
+    private function expireRequests(CarbonInterface $now, ?string $subjectType): int
     {
         $model = ApprovalRequestModelResolver::class();
 
@@ -56,6 +66,7 @@ final class ExpireApprovalsAction
             ->where('status', ApprovalStatus::Pending)
             ->whereNotNull('expires_at')
             ->where('expires_at', '<=', $now)
+            ->when($subjectType !== null, static fn (Builder $query): Builder => $query->where('subject_type', $subjectType))
             ->get();
 
         foreach ($overdue as $request) {

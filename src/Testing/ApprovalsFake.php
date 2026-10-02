@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use PHPUnit\Framework\Assert;
 use RoundlyConsulting\Approvals\ApprovalsManager;
 use RoundlyConsulting\Approvals\Enums\ApprovalOperation;
+use RoundlyConsulting\Approvals\Support\MorphType;
 
 /**
  * A recording, still-performing {@see ApprovalsManager} for host tests, swapped in by
@@ -166,16 +167,22 @@ final class ApprovalsFake extends ApprovalsManager
 
     /**
      * Assert an expiry sweep ran — and, when `$count` is given, that the sweeps lapsed
-     * exactly that many decisions and requests in total.
+     * exactly that many decisions and requests in total. With `$subjectType` (a model
+     * class or its morph alias) only sweeps scoped to that subject type count.
      */
-    public function assertExpired(?int $count = null): void
+    public function assertExpired(?int $count = null, ?string $subjectType = null): void
     {
-        $sweeps = $this->recorded(ApprovalOperation::Expire);
+        $sweeps = $this->sweeps($subjectType);
 
-        Assert::assertNotEmpty($sweeps, 'Expected an expiry sweep to run, but none did.');
+        Assert::assertNotEmpty(
+            $sweeps,
+            $subjectType === null
+                ? 'Expected an expiry sweep to run, but none did.'
+                : "Expected an expiry sweep of [{$subjectType}] to run, but none did.",
+        );
 
         if ($count !== null) {
-            Assert::assertSame($count, $this->lapsed(), "Expected {$count} decision(s) to be expired.");
+            Assert::assertSame($count, $this->lapsed($sweeps), "Expected {$count} decision(s) to be expired.");
         }
     }
 
@@ -184,7 +191,7 @@ final class ApprovalsFake extends ApprovalsManager
      */
     public function assertNothingExpired(): void
     {
-        $lapsed = $this->lapsed();
+        $lapsed = $this->lapsed($this->sweeps());
 
         Assert::assertSame(0, $lapsed, "Expected nothing to be expired, but {$lapsed} decision(s) were.");
     }
@@ -218,11 +225,36 @@ final class ApprovalsFake extends ApprovalsManager
         ));
     }
 
-    private function lapsed(): int
+    /**
+     * The recorded expiry sweeps — only those scoped to `$subjectType` when given.
+     *
+     * @return list<RecordedApprovalOperation>
+     */
+    private function sweeps(?string $subjectType = null): array
+    {
+        $sweeps = $this->recorded(ApprovalOperation::Expire);
+
+        if ($subjectType === null) {
+            return $sweeps;
+        }
+
+        $type = MorphType::of($subjectType);
+
+        return array_values(array_filter(
+            $sweeps,
+            static fn (RecordedApprovalOperation $sweep): bool => is_string($recorded = $sweep->context['subjectType'] ?? null)
+                && MorphType::of($recorded) === $type,
+        ));
+    }
+
+    /**
+     * @param  list<RecordedApprovalOperation>  $sweeps
+     */
+    private function lapsed(array $sweeps): int
     {
         $total = 0;
 
-        foreach ($this->recorded(ApprovalOperation::Expire) as $sweep) {
+        foreach ($sweeps as $sweep) {
             $total += is_int($sweep->result) ? $sweep->result : 0;
         }
 
