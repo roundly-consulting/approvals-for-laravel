@@ -60,7 +60,12 @@ Initial public release.
   model can use both `GivesApprovals` and `HasApprovals`.
 - The `approvals.default_status` config key is gone: a toggle always approves.
 - `approvals:expire` / `Approvals::expire()` also lapse overdue approvals and requests, and
-  return the number of decisions and requests lapsed.
+  return the number of decisions and requests lapsed. `Approvals::expire(subjectType: X::class)`
+  (and `ExpireApprovalsAction::execute($now, $subjectType)`) lapses only decisions on that type
+  of approvable and requests for that type of subject; the fake's `assertExpired()` takes the
+  same `$subjectType`.
+- A decision pinned to an expired request throws `ClosedApprovalRequestException` (was
+  `InvalidApprovalRequestException`).
 
 ### Fixed
 
@@ -84,6 +89,11 @@ Initial public release.
   decided on the delegator's behalf; a toggle over a held rejection approves.
 - `ApprovalStatusChanged` fires for toggles and superseded decisions, and a stage opened after a
   rejected one fires `ApprovalStageOpened`.
+- A closed request (approved, rejected, cancelled or expired) records nothing more: a late
+  approve, reject, toggle or ask on its subject or pinned to it, and a withdrawal of one of its
+  decisions, throw `ClosedApprovalRequestException` — for delegates too, and also when the round
+  closes mid-write (the request row is locked). Repeating a decision the actor already holds
+  there stays a no-op; a model that never had a request still takes standalone decisions.
 - Delegation built fluently fired `ApprovalDelegated` before its window was set and saved
   `from()` / `until()` straight onto the row, so a window ending before it started was never
   rejected. Delegations are now created by a lazy `grant()` that validates the whole window

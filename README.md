@@ -143,15 +143,16 @@ Approvals::delegationFor($deputy);                // ?ApprovalDelegation in forc
 
 // Housekeeping
 Approvals::expire();                // lapse overdue asks, approvals and requests; returns int
+Approvals::expire(subjectType: Invoice::class); // only those on invoices (class or morph alias)
 ```
 
 | Method | Returns | Notes |
 |---|---|---|
 | `for($approvable)` / `as($actor)` | `PendingApproval` | set the other side with `as()` / `for()` |
-| `->within(ApprovalRequest)` | `PendingApproval` | the request must belong to the approvable and not have expired, or `InvalidApprovalRequestException` |
+| `->within(ApprovalRequest)` | `PendingApproval` | the request must belong to the approvable (else `InvalidApprovalRequestException`) and still be open (else `ClosedApprovalRequestException`) |
 | `->because(?string)`, `->weight(int)`, `->expiresIn(int)`, `->expiringAt($t)` | `PendingApproval` | |
-| `->approve()` / `->reject()` / `->ask()` | `Approval` | counts towards the pinned request, else the approvable's latest open request; an actor that request does not name gets `UnauthorizedApprovalException`. `ask()` returns the actor's live decision unchanged when it already holds one |
-| `->cancel()` | `?Approval` | withdraws the actor's live decision, or one it made as a delegate; `null` when there was nothing to withdraw |
+| `->approve()` / `->reject()` / `->ask()` | `Approval` | counts towards the pinned request, else the approvable's latest open request; an actor that request does not name gets `UnauthorizedApprovalException`; a closed request gets `ClosedApprovalRequestException` (see [Closed requests](#closed-requests)). `ask()` returns the actor's live decision unchanged when it already holds one |
+| `->cancel()` | `?Approval` | withdraws the actor's live decision in the same round a decision would land in, or one it made as a delegate; `null` when there was nothing to withdraw; `ClosedApprovalRequestException` once that round is closed |
 | `->toggle()` | `bool` | `true` approved (through `approve()`), `false` withdrawn |
 | `->isApproved()` / `->isRejected()` / `->hasPending()` | `bool` | |
 | `request($subject)` | `PendingApprovalRequest` | |
@@ -165,7 +166,7 @@ Approvals::expire();                // lapse overdue asks, approvals and request
 | `->to($delegate)->from($t)->until($t)` or `->for($seconds)` | `PendingDelegation` | nothing is written until `grant()` |
 | `->grant()` | `ApprovalDelegation` | validates the window, then fires `ApprovalDelegated` |
 | `delegationFor($delegate, ?$at)` | `?ApprovalDelegation` | |
-| `expire(?$now)` | `int` | the number of decisions and requests lapsed |
+| `expire(?$now, ?$subjectType)` | `int` | the number of decisions and requests lapsed — only those on one subject type (model class or morph alias) when given, app-wide otherwise |
 
 The `Approvals` facade is registered automatically; a global `approvals()` helper returns the
 same manager.
@@ -246,7 +247,7 @@ $fake->assertNothingRejected();
 | `assertOpened($subject, ?$workflow)` | `assertNothingOpened()` |
 | `assertDelegated($delegator, ?$to)` | `assertNothingDelegated()` |
 | `assertRevoked($delegator, ?$delegate)` | `assertNothingRevoked()` |
-| `assertExpired(?$count)` — a sweep ran (and lapsed `$count` decisions and requests in total) | `assertNothingExpired()` — nothing lapsed |
+| `assertExpired(?$count, ?$subjectType)` — a sweep ran (and lapsed `$count` decisions and requests in total); with `$subjectType`, only sweeps scoped to that type count | `assertNothingExpired()` — nothing lapsed |
 
 `$fake->recorded(?ApprovalOperation $operation)` returns the raw
 `RecordedApprovalOperation` list (operation, context models, result) for custom assertions. An
@@ -353,6 +354,28 @@ yourself with only `required_approvers`) keeps open semantics: any approver's de
 until `required_approvers` of them have decided. Each approver is stored once, the request can't
 require more approvals than it names (`InvalidApprovalRequestException`), and a quorum/weighted
 threshold its approvers could never reach is refused when the request opens.
+
+#### Closed requests
+
+Once a request is **closed** — approved, rejected, cancelled or expired — its round is over and
+nothing more is recorded on it. A late `approve()`, `reject()`, `toggle()` or `ask()` on its
+subject (or pinned to it with `within()`), and a `cancel()` that would withdraw one of its
+decisions, throw `RoundlyConsulting\Approvals\Exceptions\ClosedApprovalRequestException`
+(its `$request` property is the closed request) — for a delegate too. Repeating the decision an
+actor already holds there stays a harmless no-op that returns it:
+
+```php
+$release->requestApproval([$lead]);
+$lead->approve($release);           // resolves the request as approved
+
+$lead->approve($release);           // no-op: returns the same approval
+$lead->reject($release);            // throws ClosedApprovalRequestException
+$lead->cancelApproval($release);    // throws ClosedApprovalRequestException
+
+$release->requestApproval([$lead]); // a new round: decisions count towards it again
+```
+
+A model that never had a request keeps taking standalone decisions.
 
 ### Weighted thresholds
 
@@ -518,6 +541,9 @@ Approvals::request($budget)->from([$cfo, $ceo])->expiresIn(604800)->open(); // d
 
 // Lapse everything overdue (schedule this):
 Approvals::expire();
+
+// …or only what belongs to one subject type (a model class or its morph alias):
+Approvals::expire(subjectType: Budget::class);
 ```
 
 ```bash
@@ -526,10 +552,12 @@ php artisan approvals:expire
 
 An approval, ask or request stops counting the moment its expiry passes — reads such as
 `isApproved()` / `hasApproved()` / `approvalCount()` and a request's tally ignore it, and a request
-past its expiry accepts no more decisions (it resolves as `expired` on the next decision, or a
-decision pinned to it with `within()` throws `InvalidApprovalRequestException`). The sweep then
+past its expiry accepts no more decisions: the next one resolves it as `expired` and is refused
+with `ClosedApprovalRequestException` (see [Closed requests](#closed-requests)). The sweep then
 records the lapse: decisions move to `expired` (`ApprovalExpired`), requests resolve as `expired`
-(`ApprovalRequestResolved`), and `expire()` returns how many of both it lapsed. An expired
+(`ApprovalRequestResolved`), and `expire()` returns how many of both it lapsed. Given a
+`subjectType`, it lapses only decisions on that type of approvable and requests for that type of
+subject, so a package sweeping its own approvals leaves the rest of the app alone. An expired
 approval frees its actor to approve again. Set `approvals.expiry.default` to give every approval a
 lifetime unless the decision sets its own; answering an ask never inherits the ask's deadline.
 
