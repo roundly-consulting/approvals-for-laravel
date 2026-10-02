@@ -12,6 +12,7 @@ use RoundlyConsulting\Approvals\DataTransferObjects\DecisionData;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Events\ApprovalApproved;
 use RoundlyConsulting\Approvals\Events\ApprovalStatusChanged;
+use RoundlyConsulting\Approvals\Exceptions\ClosedApprovalRequestException;
 use RoundlyConsulting\Approvals\Models\Approval;
 use RoundlyConsulting\Approvals\Models\ApprovalRequest;
 use RoundlyConsulting\Approvals\Support\ApprovalLifetime;
@@ -36,9 +37,13 @@ final class ApproveAction
             $data = DecisionData::approved($data->reason, CarbonImmutable::now()->addSeconds($lifetime), $data->weight);
         }
 
-        $target = $this->decisionTarget($actor, $approvable, $request);
+        try {
+            $target = $this->decisionTarget($actor, $approvable, $request);
 
-        $recorded = $this->recordDecision($target, ApprovalStatus::Approved, $data);
+            $recorded = $this->recordDecision($target, ApprovalStatus::Approved, $data);
+        } catch (ClosedApprovalRequestException $closed) {
+            return $this->heldInClosedRound($closed, $actor, $approvable, ApprovalStatus::Approved);
+        }
 
         // Approving again in the same slot is an idempotent no-op.
         if (! $recorded->changed) {

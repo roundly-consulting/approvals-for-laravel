@@ -3,9 +3,12 @@
 declare(strict_types=1);
 
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Event;
 use RoundlyConsulting\Approvals\DataTransferObjects\DecisionTarget;
 use RoundlyConsulting\Approvals\Enums\ApprovalRule;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
+use RoundlyConsulting\Approvals\Events\ApprovalApproved;
+use RoundlyConsulting\Approvals\Events\ApprovalStatusChanged;
 use RoundlyConsulting\Approvals\Exceptions\ApprovalsException;
 use RoundlyConsulting\Approvals\Exceptions\ClosedApprovalRequestException;
 use RoundlyConsulting\Approvals\Facades\Approvals;
@@ -112,6 +115,55 @@ describe('a late decision on the subject', function (): void {
 
         expect($approval->approval_request_id)->toBeNull()
             ->and($approval->status)->toBe(ApprovalStatus::Approved);
+    });
+});
+
+describe('repeating the decision already held in the closed round', function (): void {
+    it('is an idempotent no-op, as in an open round', function (): void {
+        $release = ReleaseTestModel::create();
+        $lead = ReviewerTestModel::create();
+
+        $request = $release->requestApproval([$lead]);
+        $first = $lead->approve($release);
+
+        Event::fake([ApprovalApproved::class, ApprovalStatusChanged::class]);
+
+        $again = $lead->approve($release);
+        $pinned = Approvals::for($release)->as($lead)->within($request)->approve();
+
+        expect($again->is($first))->toBeTrue()
+            ->and($pinned->is($first))->toBeTrue()
+            ->and(Approval::query()->count())->toBe(1);
+
+        Event::assertNothingDispatched();
+    });
+
+    it('is a no-op for a repeated rejection, and for the delegate who decided', function (): void {
+        $release = ReleaseTestModel::create();
+        [$boss, $deputy] = [ReviewerTestModel::create(), ReviewerTestModel::create()];
+
+        $release->requestApproval([$boss]);
+        $boss->delegateApprovalsTo($deputy);
+        $rejection = $deputy->reject($release);
+
+        expect($deputy->reject($release)->is($rejection))->toBeTrue()
+            ->and($boss->reject($release)->is($rejection))->toBeTrue()
+            ->and(fn () => $deputy->approve($release))->toThrow(ClosedApprovalRequestException::class)
+            ->and(Approval::query()->count())->toBe(1);
+    });
+
+    it('is refused once the held decision lapsed', function (): void {
+        CarbonImmutable::setTestNow('2026-09-28 12:00:00');
+
+        $release = ReleaseTestModel::create();
+        $lead = ReviewerTestModel::create();
+
+        $release->requestApproval([$lead]);
+        Approvals::for($release)->as($lead)->expiresIn(60)->approve();
+
+        CarbonImmutable::setTestNow('2026-09-30 12:00:00');
+
+        expect(fn () => $lead->approve($release))->toThrow(ClosedApprovalRequestException::class);
     });
 });
 

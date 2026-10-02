@@ -11,6 +11,7 @@ use RoundlyConsulting\Approvals\DataTransferObjects\DecisionData;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Events\ApprovalRejected;
 use RoundlyConsulting\Approvals\Events\ApprovalStatusChanged;
+use RoundlyConsulting\Approvals\Exceptions\ClosedApprovalRequestException;
 use RoundlyConsulting\Approvals\Models\Approval;
 use RoundlyConsulting\Approvals\Models\ApprovalRequest;
 
@@ -29,11 +30,15 @@ final class RejectAction
 
         $data ??= DecisionData::rejected();
 
-        $target = $this->decisionTarget($actor, $approvable, $request);
+        try {
+            $target = $this->decisionTarget($actor, $approvable, $request);
 
-        // Rejecting over an earlier approval withdraws that approval: only the latest
-        // decision of an actor counts.
-        $recorded = $this->recordDecision($target, ApprovalStatus::Rejected, $data);
+            // Rejecting over an earlier approval withdraws that approval: only the latest
+            // decision of an actor counts.
+            $recorded = $this->recordDecision($target, ApprovalStatus::Rejected, $data);
+        } catch (ClosedApprovalRequestException $closed) {
+            return $this->heldInClosedRound($closed, $actor, $approvable, ApprovalStatus::Rejected);
+        }
 
         if (! $recorded->changed) {
             return $recorded->approval;

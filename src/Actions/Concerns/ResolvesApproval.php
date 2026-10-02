@@ -281,6 +281,41 @@ trait ResolvesApproval
     }
 
     /**
+     * The answer to a decision that reached a closed round: when the actor already holds
+     * that very decision there (as the actor, or as the delegate who made it), repeating
+     * it changes nothing and returns it — an idempotent no-op, as in an open round, so a
+     * double-submitted approval stays harmless. Any other decision is refused.
+     *
+     * @throws ClosedApprovalRequestException
+     */
+    protected function heldInClosedRound(
+        ClosedApprovalRequestException $closed,
+        Model $actor,
+        Model $approvable,
+        ApprovalStatus $status,
+    ): Approval {
+        $model = ApprovalModelResolver::class();
+
+        foreach (['actor', 'decidedBy'] as $relation) {
+            $held = $model::query()
+                ->where('approval_request_id', $closed->request->getKey())
+                ->whereMorphedTo('approvable', $approvable)
+                ->whereMorphedTo($relation, $actor)
+                ->where('status', $status)
+                ->live()
+                ->inForce()
+                ->latest('id')
+                ->first();
+
+            if ($held instanceof Approval) {
+                return $held;
+            }
+        }
+
+        throw $closed;
+    }
+
+    /**
      * Run inside the write's transaction: lock the request row and refuse the write when
      * the round closed after the request was resolved (a concurrent decision resolved it,
      * or the host closed it). The lock holds a resolution back until the write commits,
