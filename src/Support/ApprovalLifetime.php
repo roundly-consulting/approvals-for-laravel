@@ -24,6 +24,6 @@ final class ApprovalLifetime
         }
 
         // Env values arrive as strings: an integer string is accepted, anything else fails loudly.
-        return Config::intBetween('approvals.expiry.default', 1, PHP_INT_MAX, 1);
+        return Config::integer('approvals.expiry.default', 1, min: 1);
     }
 }
