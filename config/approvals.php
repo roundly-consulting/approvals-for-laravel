@@ -68,7 +68,8 @@ return [
     | / subject / decided_by / delegator / delegate columns. Use "uuid" or "ulid"
     | when the models an approval points at use UUID/ULID primary keys, otherwise
     | leave it as "bigint". Your morph targets must share one key type; set this to
-    | match them. Any unrecognized value falls back to "bigint".
+    | match them. Any other value throws an InvalidConfigurationException when
+    | the migrations run.
     |
     | Supported: "bigint", "uuid", "ulid"
     |
@@ -84,8 +85,9 @@ return [
     | When enabled, every decision path — approve, reject, toggle, ask and
     | cancel — is gated through Laravel's authorization layer: the actor must
     | pass the given Gate ability against the approvable first. Accepts env
-    | strings ("true", "1", "yes", "on"). The package never defines the gate
-    | itself; the host application registers it.
+    | strings ("true"/"1"/"yes"/"on", "false"/"0"/"no"/"off"); anything else
+    | throws an InvalidConfigurationException. The package never defines the
+    | gate itself; the host application registers it.
     |
     */
 
