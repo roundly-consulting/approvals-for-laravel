@@ -87,7 +87,8 @@ return [
     | pass the given Gate ability against the approvable first. Accepts env
     | strings ("true"/"1"/"yes"/"on", "false"/"0"/"no"/"off"); anything else
     | throws an InvalidConfigurationException. The package never defines the
-    | gate itself; the host application registers it.
+    | gate itself; the host application registers it. "ability" must be a
+    | non-empty string (null means "decide-approval"); anything else throws.
     |
     */
 
@@ -125,8 +126,11 @@ return [
     |
     | A preset is either flat (a single rule/quorum/required_approvers) or staged
     | (a list of stage shapes, each with its own rule/quorum/required_approvers).
-    | Optional keys: 'expiry' (seconds) and, for staged presets,
-    | 'reject_on_stage_rejection' (defaults to true).
+    | Optional keys: 'expiry' (positive seconds) and, for staged presets, a
+    | non-empty stage 'name' and 'reject_on_stage_rejection' (a boolean or a
+    | boolean spelling such as 'false'; defaults to true). A malformed preset
+    | throws UnknownWorkflowException; a non-array 'workflows' value throws an
+    | InvalidConfigurationException.
     |
     */
 

@@ -13,8 +13,10 @@ use RoundlyConsulting\Approvals\Support\ApprovalLifetime;
 use RoundlyConsulting\Approvals\Support\ApprovalModelResolver;
 use RoundlyConsulting\Approvals\Support\ApprovalRequestModelResolver;
 use RoundlyConsulting\Approvals\Support\ApprovalRequestStageModelResolver;
+use RoundlyConsulting\Approvals\Support\WorkflowResolver;
 use RoundlyConsulting\PackageToolkit\Concerns\RegistersBladeDirectives;
 use RoundlyConsulting\PackageToolkit\Concerns\RegistersBlueprintMacros;
+use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 use RoundlyConsulting\PackageToolkit\Package;
 use RoundlyConsulting\PackageToolkit\PackageServiceProvider;
 use RoundlyConsulting\PackageToolkit\Support\Config;
@@ -77,28 +79,32 @@ final class ApprovalsServiceProvider extends PackageServiceProvider
     {
         $ability = config('approvals.authorization.ability');
 
-        if (! is_string($ability) || $ability === '') {
-            return 'NONE';
+        if ($ability === null || $ability === 'decide-approval') {
+            return 'DEFAULT';
         }
 
-        return $ability === 'decide-approval' ? 'DEFAULT' : 'SET';
+        return is_string($ability) && trim($ability) !== '' ? 'SET' : 'INVALID';
     }
 
     private static function defaultExpiry(): string
     {
-        $expiry = ApprovalLifetime::seconds();
+        try {
+            $expiry = ApprovalLifetime::seconds();
+        } catch (InvalidConfigurationException) {
+            return 'INVALID';
+        }
 
         return $expiry === null ? 'NEVER' : $expiry.'s';
     }
 
     private static function workflowCount(): string
     {
-        $workflows = config('approvals.workflows');
-
-        if (! is_array($workflows) || $workflows === []) {
-            return 'NONE';
+        try {
+            $workflows = WorkflowResolver::presets();
+        } catch (InvalidConfigurationException) {
+            return 'INVALID';
         }
 
-        return count($workflows).' defined';
+        return $workflows === [] ? 'NONE' : count($workflows).' defined';
     }
 }

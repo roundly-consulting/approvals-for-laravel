@@ -29,8 +29,11 @@ trait AuthorizesDecisions
             return;
         }
 
-        $ability = config('approvals.authorization.ability');
-        $ability = is_string($ability) ? $ability : 'decide-approval';
+        // Unset means the documented ability; anything else must be a non-empty string —
+        // a malformed value never silently checks a different gate than the host configured.
+        $ability = config('approvals.authorization.ability') === null
+            ? 'decide-approval'
+            : Config::requireString('approvals.authorization.ability');
 
         try {
             Gate::forUser($actor)->authorize($ability, [$approvable]);
