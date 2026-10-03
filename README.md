@@ -94,9 +94,9 @@ return [
 | `delegation_model` | `class-string<ApprovalDelegation>` | `ApprovalDelegation::class` | Model used to persist delegations. Must extend the package's `ApprovalDelegation`. |
 | `key_type` | `string` | `'bigint'` (env `APPROVALS_KEY_TYPE`) | Key type of the polymorphic id columns (actor, approvable, subject, request, `decided_by`, delegator, delegate): `bigint`, `uuid` or `ulid`. Read by the migrations, so set it before you migrate; match your models' primary keys. Anything else throws `InvalidConfigurationException`. |
 | `authorization.enabled` | `bool` | `false` (env `APPROVALS_AUTHORIZATION`) | When true, every decision path (approve, reject, toggle, ask, cancel) is gated through a Gate ability. Env strings `true`/`1`/`yes`/`on` enable it, `false`/`0`/`no`/`off` disable it, and anything else throws `InvalidConfigurationException`. |
-| `authorization.ability` | `string` | `'decide-approval'` | The Gate ability checked against the approvable. |
-| `expiry.default` | `int\|null` | `null` | Lifetime in seconds of an approval given without an explicit expiry; it stops counting once that passes. `null` means approvals never expire unless you set one per decision. |
-| `workflows` | `array` | `[]` | Named workflow presets (see below). |
+| `authorization.ability` | `string` | `'decide-approval'` | The Gate ability checked against the approvable. `null` means `decide-approval`; a blank or non-string value throws `InvalidConfigurationException` rather than checking a different gate. |
+| `expiry.default` | `int\|null` | `null` | Lifetime in seconds (≥ 1) of an approval given without an explicit expiry; it stops counting once that passes. `null` (or empty) means approvals never expire unless you set one per decision; anything else that isn't a positive whole number throws `InvalidConfigurationException`. |
+| `workflows` | `array` | `[]` | Named workflow presets (see below). A non-array value throws `InvalidConfigurationException`. |
 
 The package runs with zero host configuration.
 
@@ -513,7 +513,10 @@ Approvals::request($release)->workflow('release')->open([[$eng1, $eng2], [$produ
 ```
 
 An unknown or malformed preset throws
-`RoundlyConsulting\Approvals\Exceptions\UnknownWorkflowException`. A stage's
+`RoundlyConsulting\Approvals\Exceptions\UnknownWorkflowException` — including a non-integer
+`quorum`/`expiry`, an `expiry` below 1, a blank or non-string stage `name`, and a
+`reject_on_stage_rejection` that is neither a boolean nor a boolean spelling (`'false'`, `0`,
+`'off'`, … read as false). A stage's
 `required_approvers` is the number of approvals it needs, so its group must name at least that
 many approvers (a flat preset's `required_approvers` likewise); otherwise opening throws
 `InvalidApprovalRequestException`. A preset's `expiry` lapses the request like `expiresIn()`.
