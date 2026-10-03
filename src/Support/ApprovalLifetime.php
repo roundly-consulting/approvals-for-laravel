@@ -8,8 +8,8 @@ use RoundlyConsulting\PackageToolkit\Support\Config;
 
 /**
  * Reads `approvals.expiry.default`: how long, in seconds, an approval given without an
- * explicit expiry stays valid. Null (the default) means approvals never expire unless
- * one is set per decision.
+ * explicit expiry stays valid. Not set (null, the default, or blank) means approvals never
+ * expire unless one is set per decision.
  *
  * @internal
  */
@@ -19,7 +19,7 @@ final class ApprovalLifetime
     {
         $configured = config('approvals.expiry.default');
 
-        if ($configured === null || $configured === '') {
+        if ($configured === null || (is_string($configured) && trim($configured) === '')) {
             return null;
         }
 

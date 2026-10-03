@@ -97,11 +97,11 @@ describe('the default approval lifetime', function (): void {
         expect($approval->expires_at?->toDateTimeString())->toBe('2026-09-28 12:01:00');
     });
 
-    it('never expires approvals when unset', function (): void {
-        config()->set('approvals.expiry.default', null);
+    it('never expires approvals when unset', function (?string $unset): void {
+        config()->set('approvals.expiry.default', $unset);
 
         expect(ReviewerTestModel::create()->approve(DeploymentTestModel::create())->expires_at)->toBeNull();
-    });
+    })->with(['absent' => null, 'blank' => '', 'whitespace' => '  ']);
 
     it('refuses a malformed default', function (): void {
         config()->set('approvals.expiry.default', 'soon');

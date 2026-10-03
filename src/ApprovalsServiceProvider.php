@@ -79,11 +79,12 @@ final class ApprovalsServiceProvider extends PackageServiceProvider
     {
         $ability = config('approvals.authorization.ability');
 
-        if ($ability === null || $ability === 'decide-approval') {
+        // Blank is not set, exactly like null: the documented ability.
+        if ($ability === null || $ability === 'decide-approval' || (is_string($ability) && trim($ability) === '')) {
             return 'DEFAULT';
         }
 
-        return is_string($ability) && trim($ability) !== '' ? 'SET' : 'INVALID';
+        return is_string($ability) ? 'SET' : 'INVALID';
     }
 
     private static function defaultExpiry(): string

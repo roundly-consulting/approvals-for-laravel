@@ -29,9 +29,10 @@ trait AuthorizesDecisions
             return;
         }
 
-        // Unset means the documented ability; anything else must be a non-empty string —
-        // a malformed value never silently checks a different gate than the host configured.
-        $ability = config('approvals.authorization.ability') === null
+        // Not set (absent, null or blank) means the documented ability; anything else must be
+        // a string — a malformed value never silently checks a different gate than the host configured.
+        $configured = config('approvals.authorization.ability');
+        $ability = $configured === null || (is_string($configured) && trim($configured) === '')
             ? 'decide-approval'
             : Config::requireString('approvals.authorization.ability');
 

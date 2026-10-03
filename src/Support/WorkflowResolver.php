@@ -12,6 +12,9 @@ use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 
 /**
  * Reads and validates named workflow presets from config('approvals.workflows').
+ *
+ * An optional key that is not set — absent, null or blank (`''` or whitespace) — takes its
+ * default; a present value of the wrong shape throws.
  */
 final class WorkflowResolver
 {
@@ -41,7 +44,7 @@ final class WorkflowResolver
 
         return new WorkflowPreset(
             name: $name,
-            rule: $this->rule($name, $config['rule'] ?? ApprovalRule::Unanimous->value),
+            rule: $this->rule($name, $config['rule'] ?? null),
             quorum: $this->optionalInt($name, $config, 'quorum'),
             requiredApprovers: $this->optionalInt($name, $config, 'required_approvers'),
             expiry: $expiry,
@@ -75,14 +78,14 @@ final class WorkflowResolver
                 );
             }
 
-            $stageName = $raw['name'] ?? null;
+            $stageName = self::isUnset($raw['name'] ?? null) ? null : $raw['name'];
 
-            if ($stageName !== null && (! is_string($stageName) || trim($stageName) === '')) {
-                throw UnknownWorkflowException::invalid($name, "stage #{$index} name must be a non-empty string.");
+            if ($stageName !== null && ! is_string($stageName)) {
+                throw UnknownWorkflowException::invalid($name, "stage #{$index} name must be a string.");
             }
 
             $stages[] = new WorkflowStagePreset(
-                rule: $this->rule($name, $raw['rule'] ?? ApprovalRule::Unanimous->value),
+                rule: $this->rule($name, $raw['rule'] ?? null),
                 requiredApprovers: $required,
                 quorum: $this->optionalInt($name, $raw, 'quorum'),
                 name: $stageName,
@@ -98,7 +101,7 @@ final class WorkflowResolver
     }
 
     /**
-     * The `approvals.workflows` registry: no presets when unset, otherwise a name => preset
+     * The `approvals.workflows` registry: no presets when not set, otherwise a name => preset
      * map — anything else throws rather than reading as "no presets".
      *
      * @return array<array-key, mixed>
@@ -107,7 +110,7 @@ final class WorkflowResolver
     {
         $workflows = config('approvals.workflows');
 
-        if ($workflows === null) {
+        if (self::isUnset($workflows)) {
             return [];
         }
 
@@ -121,9 +124,9 @@ final class WorkflowResolver
     }
 
     /**
-     * `reject_on_stage_rejection`: true when unset; a bool or a boolean spelling (`'false'`,
-     * `0`, `'off'`, …) otherwise. Anything else throws — it used to read every value but a
-     * literal `false` as true.
+     * `reject_on_stage_rejection`: true when not set (absent, null or blank — blank is never
+     * false); a bool or a boolean spelling (`'false'`, `0`, `'off'`, …) otherwise. Anything
+     * else throws — it used to read every value but a literal `false` as true.
      *
      * @param  array<string, mixed>  $config
      */
@@ -131,7 +134,7 @@ final class WorkflowResolver
     {
         $value = $config['reject_on_stage_rejection'] ?? null;
 
-        if ($value === null) {
+        if (self::isUnset($value)) {
             return true;
         }
 
@@ -140,8 +143,15 @@ final class WorkflowResolver
         return $parsed ?? throw UnknownWorkflowException::invalid($name, '[reject_on_stage_rejection] must be a boolean.');
     }
 
+    /**
+     * A rule: unanimous when not set, otherwise a case or its exact value.
+     */
     private function rule(string $name, mixed $value): ApprovalRule
     {
+        if (self::isUnset($value)) {
+            return ApprovalRule::Unanimous;
+        }
+
         if ($value instanceof ApprovalRule) {
             return $value;
         }
@@ -158,7 +168,7 @@ final class WorkflowResolver
      */
     private function optionalInt(string $name, array $config, string $key): ?int
     {
-        if (! array_key_exists($key, $config) || $config[$key] === null) {
+        if (self::isUnset($config[$key] ?? null)) {
             return null;
         }
 
@@ -169,5 +179,13 @@ final class WorkflowResolver
         }
 
         return $value;
+    }
+
+    /**
+     * Not set: null or blank (`''` or whitespace), read exactly like an absent key.
+     */
+    private static function isUnset(mixed $value): bool
+    {
+        return $value === null || (is_string($value) && trim($value) === '');
     }
 }

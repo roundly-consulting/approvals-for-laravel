@@ -31,6 +31,12 @@ it('rejects a non-string model configuration', function (): void {
     ApprovalModelResolver::class();
 })->throws(InvalidApprovalModelException::class);
 
+it('resolves the default approval model when the configuration is blank', function (string $blank): void {
+    config()->set('approvals.model', $blank);
+
+    expect(ApprovalModelResolver::class())->toBe(Approval::class);
+})->with(['blank' => '', 'whitespace' => '  ']);
+
 it('rejects a null model configuration', function (): void {
     config()->set('approvals.model', null);
 

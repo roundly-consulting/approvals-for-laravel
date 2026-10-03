@@ -85,10 +85,11 @@ return [
     | When enabled, every decision path — approve, reject, toggle, ask and
     | cancel — is gated through Laravel's authorization layer: the actor must
     | pass the given Gate ability against the approvable first. Accepts env
-    | strings ("true"/"1"/"yes"/"on", "false"/"0"/"no"/"off"); anything else
-    | throws an InvalidConfigurationException. The package never defines the
-    | gate itself; the host application registers it. "ability" must be a
-    | non-empty string (null means "decide-approval"); anything else throws.
+    | strings ("true"/"1"/"yes"/"on", "false"/"0"/"no"/"off"); a blank value
+    | is not set (off), and anything else throws an
+    | InvalidConfigurationException. The package never defines the gate
+    | itself; the host application registers it. "ability" must be a string
+    | (null or blank means "decide-approval"); anything else throws.
     |
     */
 
@@ -104,8 +105,8 @@ return [
     |
     | The default lifetime, in seconds, of an approval given without an explicit
     | expiry (->expiresIn() / ->expiringAt()). Once it passes, the approval stops
-    | counting and `approvals:expire` lapses it. Null means approvals never
-    | expire unless an expiry is set per decision.
+    | counting and `approvals:expire` lapses it. Null (or blank) means approvals
+    | never expire unless an expiry is set per decision.
     |
     */
 
@@ -127,8 +128,9 @@ return [
     | A preset is either flat (a single rule/quorum/required_approvers) or staged
     | (a list of stage shapes, each with its own rule/quorum/required_approvers).
     | Optional keys: 'expiry' (positive seconds) and, for staged presets, a
-    | non-empty stage 'name' and 'reject_on_stage_rejection' (a boolean or a
-    | boolean spelling such as 'false'; defaults to true). A malformed preset
+    | stage 'name' and 'reject_on_stage_rejection' (a boolean or a boolean
+    | spelling such as 'false'; defaults to true). An optional key left blank
+    | is not set and takes its default. A malformed preset
     | throws UnknownWorkflowException; a non-array 'workflows' value throws an
     | InvalidConfigurationException.
     |

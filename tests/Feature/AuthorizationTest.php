@@ -83,7 +83,15 @@ it('stays off for falsy env strings', function (string $env): void {
 
     expect(app(ApproveAction::class)->execute(ActorTestModel::create(), DeploymentTestModel::create())->status)
         ->toBe(ApprovalStatus::Approved);
-})->with(['0', 'false', 'no', 'off', '']);
+})->with(['0', 'false', 'no', 'off']);
+
+it('stays off when the switch is blank (not set, so its default)', function (string $env): void {
+    config()->set('approvals.authorization.enabled', $env);
+    Gate::define('decide-approval', fn (): bool => false);
+
+    expect(app(ApproveAction::class)->execute(ActorTestModel::create(), DeploymentTestModel::create())->status)
+        ->toBe(ApprovalStatus::Approved);
+})->with(['blank' => '', 'whitespace' => '  ']);
 
 it('gates every decision path, not only approve and reject', function (string $verb): void {
     $deployment = DeploymentTestModel::create();

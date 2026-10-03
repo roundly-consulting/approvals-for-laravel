@@ -20,7 +20,7 @@ use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
  | literal `false` (`'false'`, `0`) as true.
  */
 
-it('refuses a blank or non-string gate ability instead of checking the default one (strict config)', function (mixed $ability): void {
+it('refuses a non-string gate ability instead of checking the default one (strict config)', function (mixed $ability): void {
     config()->set('approvals.authorization.enabled', true);
     config()->set('approvals.authorization.ability', $ability);
     Gate::define('decide-approval', fn (): bool => true);
@@ -28,16 +28,19 @@ it('refuses a blank or non-string gate ability instead of checking the default o
     expect(fn () => app(ApproveAction::class)->execute(ActorTestModel::create(), DeploymentTestModel::create()))
         ->toThrow(InvalidConfigurationException::class, 'approvals.authorization.ability')
         ->and(Approval::query()->count())->toBe(0);
-})->with(['blank' => '', 'whitespace' => ' ', 'array' => [['decide-approval']], 'bool' => true]);
+})->with(['array' => [['decide-approval']], 'bool' => true, 'integer' => 1]);
 
-it('checks the decide-approval gate when no ability is configured (strict config)', function (): void {
+it('checks the decide-approval gate when no ability is set (strict config)', function (?string $ability): void {
     config()->set('approvals.authorization.enabled', true);
-    config()->set('approvals.authorization.ability', null);
+    config()->set('approvals.authorization.ability', $ability);
     Gate::define('decide-approval', fn (): bool => true);
 
+    Artisan::call('about', ['--only' => 'approvals']);
+
     expect(app(ApproveAction::class)->execute(ActorTestModel::create(), DeploymentTestModel::create()))
-        ->toBeInstanceOf(Approval::class);
-});
+        ->toBeInstanceOf(Approval::class)
+        ->and(Artisan::output())->toMatch('/Ability \.+ DEFAULT/');
+})->with(['absent' => null, 'blank' => '', 'whitespace' => ' ']);
 
 it('refuses a workflows registry that is not a map (strict config)', function (): void {
     config()->set('approvals.workflows', 'payout');
@@ -45,6 +48,14 @@ it('refuses a workflows registry that is not a map (strict config)', function ()
     expect(fn () => app(WorkflowResolver::class)->resolve('payout'))
         ->toThrow(InvalidConfigurationException::class, 'approvals.workflows');
 });
+
+it('reads an unset workflows registry as no presets (strict config)', function (?string $workflows): void {
+    config()->set('approvals.workflows', $workflows);
+
+    expect(WorkflowResolver::presets())->toBe([])
+        ->and(fn () => app(WorkflowResolver::class)->resolve('payout'))
+        ->toThrow(UnknownWorkflowException::class);
+})->with(['absent' => null, 'blank' => '', 'whitespace' => ' ']);
 
 it('refuses a non-boolean reject_on_stage_rejection (strict config)', function (mixed $value): void {
     config()->set('approvals.workflows.release', [
@@ -68,16 +79,48 @@ it('reads boolean spellings of reject_on_stage_rejection (strict config)', funct
     'zero' => [0, false],
     'true' => [true, true],
     'absent' => [null, true],
+    'blank (not set, never false)' => ['', true],
+    'whitespace (not set)' => [' ', true],
 ]);
 
-it('refuses a blank or non-string stage name (strict config)', function (mixed $name): void {
+it('refuses a non-string stage name (strict config)', function (mixed $name): void {
     config()->set('approvals.workflows.release', [
         'stages' => [['rule' => ApprovalRule::Any->value, 'required_approvers' => 1, 'name' => $name]],
     ]);
 
     expect(fn () => app(WorkflowResolver::class)->resolve('release'))
         ->toThrow(UnknownWorkflowException::class, 'name');
-})->with(['blank' => '', 'integer' => 7]);
+})->with(['integer' => 7, 'array' => [['legal']]]);
+
+it('reads blank optional preset keys as not set (strict config)', function (string $blank): void {
+    config()->set('approvals.workflows.payout', ['rule' => $blank, 'quorum' => $blank, 'required_approvers' => $blank, 'expiry' => $blank]);
+    config()->set('approvals.workflows.release', [
+        'expiry' => $blank,
+        'stages' => [['rule' => $blank, 'required_approvers' => 1, 'quorum' => $blank, 'name' => $blank]],
+    ]);
+
+    $flat = app(WorkflowResolver::class)->resolve('payout');
+    $staged = app(WorkflowResolver::class)->resolve('release');
+
+    expect($flat->rule)->toBe(ApprovalRule::Unanimous)
+        ->and($flat->quorum)->toBeNull()
+        ->and($flat->requiredApprovers)->toBeNull()
+        ->and($flat->expiry)->toBeNull()
+        ->and($staged->expiry)->toBeNull()
+        ->and($staged->stages[0]->rule)->toBe(ApprovalRule::Unanimous)
+        ->and($staged->stages[0]->quorum)->toBeNull()
+        ->and($staged->stages[0]->name)->toBeNull();
+})->with(['blank' => '', 'whitespace' => '  ']);
+
+it('refuses an unknown or non-integer preset value (strict config)', function (array $preset, string $message): void {
+    config()->set('approvals.workflows.payout', $preset);
+
+    expect(fn () => app(WorkflowResolver::class)->resolve('payout'))
+        ->toThrow(UnknownWorkflowException::class, $message);
+})->with([
+    'rule typo' => [['rule' => 'unanimus'], 'unknown rule'],
+    'quorum word' => [['rule' => 'quorum', 'quorum' => 'two'], '[quorum] must be an integer'],
+]);
 
 it('refuses a non-positive preset expiry (strict config)', function (int $expiry): void {
     config()->set('approvals.workflows.payout', ['rule' => ApprovalRule::Any->value, 'expiry' => $expiry]);
