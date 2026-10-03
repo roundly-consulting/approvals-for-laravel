@@ -11,6 +11,7 @@ use RoundlyConsulting\Approvals\Facades\Approvals;
 use RoundlyConsulting\Approvals\Models\Approval;
 use RoundlyConsulting\Approvals\Tests\ActorTestModel;
 use RoundlyConsulting\Approvals\Tests\DeploymentTestModel;
+use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 
 it('passes through when authorization is disabled', function (): void {
     config()->set('approvals.authorization.enabled', false);
@@ -21,6 +22,18 @@ it('passes through when authorization is disabled', function (): void {
     $approval = app(ApproveAction::class)->execute($actor, $deployment);
 
     expect($approval->status)->toBe(ApprovalStatus::Approved);
+});
+
+it('refuses a mistyped authorization switch instead of deciding ungated (strict config)', function (): void {
+    config()->set('approvals.authorization.enabled', 'enabeld');
+
+    $actor = ActorTestModel::create();
+    $deployment = DeploymentTestModel::create();
+
+    expect(fn () => app(ApproveAction::class)->execute($actor, $deployment))
+        ->toThrow(InvalidConfigurationException::class, 'Configuration value [approvals.authorization.enabled] must be a boolean');
+
+    expect(Approval::query()->count())->toBe(0);
 });
 
 it('records a decision when the gate allows', function (): void {
