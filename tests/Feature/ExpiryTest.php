@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Event;
+use RoundlyConsulting\Approvals\DataTransferObjects\StageDefinition;
 use RoundlyConsulting\Approvals\Enums\ApprovalRule;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Events\ApprovalExpired;
@@ -224,6 +225,27 @@ describe('an expiring request', function (): void {
         expect(Approvals::expire())->toBe(1)
             ->and($request->fresh()?->status)->toBe(ApprovalStatus::Expired);
     });
+});
+
+describe('the progress of an overdue request', function (): void {
+    it('reports expired, as status() does', function (bool $staged): void {
+        $release = ReleaseTestModel::create();
+        $lead = ReviewerTestModel::create();
+
+        $builder = Approvals::request($release)->expiresIn(60);
+
+        $staged
+            ? $builder->stages([new StageDefinition([$lead], ApprovalRule::Any)])->open()
+            : $builder->from([$lead])->open();
+
+        expect(Approvals::progress($release)?->status)->toBe(ApprovalStatus::Pending);
+
+        twoDaysLater();
+
+        expect(Approvals::status($release))->toBe(ApprovalStatus::Expired)
+            ->and(Approvals::progress($release)?->status)->toBe(ApprovalStatus::Expired)
+            ->and($release->approvalProgress()?->status)->toBe(ApprovalStatus::Expired);
+    })->with(['flat' => false, 'staged' => true]);
 });
 
 describe('a sweep scoped to one subject type', function (): void {

@@ -394,7 +394,8 @@ class ApprovalRequest extends Model
     }
 
     /**
-     * A snapshot of how far the request has progressed.
+     * A snapshot of how far the request has progressed. A request past its expiry reads
+     * as expired, as `Approvals::status()` reports it, even before the sweep lapses it.
      */
     public function approvalProgress(): ApprovalProgress
     {
@@ -405,7 +406,7 @@ class ApprovalRequest extends Model
         $tally = $this->flatTally();
 
         return new ApprovalProgress(
-            status: $this->status,
+            status: $this->reportedStatus(),
             approved: $this->rule->isWeighted() ? $tally->approvedWeight : $tally->approvedCount,
             rejected: $this->rule->isWeighted() ? $tally->rejectedWeight : $tally->rejectedCount,
             required: $this->required_approvers ?? 0,
@@ -438,7 +439,7 @@ class ApprovalRequest extends Model
         }
 
         return new ApprovalProgress(
-            status: $this->status,
+            status: $this->reportedStatus(),
             approved: $approvals,
             rejected: $rejections,
             required: $required,
@@ -447,6 +448,11 @@ class ApprovalRequest extends Model
             totalStages: $stages->count(),
             clearedStages: $cleared,
         );
+    }
+
+    private function reportedStatus(): ApprovalStatus
+    {
+        return $this->isOverdue() ? ApprovalStatus::Expired : $this->status;
     }
 
     protected static function newFactory(): ApprovalRequestFactory
