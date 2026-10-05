@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Event;
 use RoundlyConsulting\Approvals\Actions\ApproveAction;
@@ -26,6 +27,8 @@ function reviewers(int $count): array
 {
     return array_map(fn (): ReviewerTestModel => ReviewerTestModel::create(), range(1, $count));
 }
+
+afterEach(fn () => CarbonImmutable::setTestNow());
 
 describe('the double-approval race', function (): void {
     it('refuses a second live decision in the same slot at the database', function (): void {
@@ -284,6 +287,67 @@ describe('withdrawing a delegated decision', function (): void {
 
         expect(fn () => Approvals::for($release)->as($lead)->within($foreign)->cancel())
             ->toThrow(InvalidApprovalRequestException::class);
+    });
+
+    it('refuses a revoked delegate\'s withdrawal of a standalone decision', function (): void {
+        $boss = ReviewerTestModel::create();
+        $deputy = ReviewerTestModel::create();
+        $deployment = DeploymentTestModel::create();
+
+        $boss->delegateApprovalsTo($deputy);
+        $approval = $deputy->approve($deployment);
+        $boss->revokeApprovalDelegation($deputy);
+
+        expect($deputy->cancelApproval($deployment))->toBeNull()
+            ->and($approval->fresh()?->status)->toBe(ApprovalStatus::Approved)
+            ->and($boss->hasApproved($deployment))->toBeTrue();
+    });
+
+    it('refuses a revoked delegate\'s withdrawal on a named request', function (): void {
+        $boss = ReviewerTestModel::create();
+        $deputy = ReviewerTestModel::create();
+        $release = ReleaseTestModel::create();
+
+        $release->requestApproval([$boss, ReviewerTestModel::create()]);
+
+        $boss->delegateApprovalsTo($deputy);
+        $approval = $deputy->approve($release);
+        $boss->revokeApprovalDelegation($deputy);
+
+        expect($deputy->cancelApproval($release))->toBeNull()
+            ->and($approval->fresh()?->status)->toBe(ApprovalStatus::Approved);
+    });
+
+    it('refuses the withdrawal once the delegation has ended', function (): void {
+        CarbonImmutable::setTestNow('2026-09-28 12:00:00');
+
+        $boss = ReviewerTestModel::create();
+        $deputy = ReviewerTestModel::create();
+        $deployment = DeploymentTestModel::create();
+
+        $boss->delegateApprovalsTo($deputy, until: CarbonImmutable::now()->addHour());
+        $approval = $deputy->approve($deployment);
+
+        CarbonImmutable::setTestNow('2026-09-28 14:00:00');
+
+        expect($deputy->cancelApproval($deployment))->toBeNull()
+            ->and($approval->fresh()?->status)->toBe(ApprovalStatus::Approved);
+    });
+
+    it('lets the delegate withdraw under a delegation still in force from the same delegator', function (): void {
+        $boss = ReviewerTestModel::create();
+        $deputy = ReviewerTestModel::create();
+        $deployment = DeploymentTestModel::create();
+
+        $boss->delegateApprovalsTo($deputy);
+        $deputy->approve($deployment);
+
+        // Another delegator's revoked delegation to the same deputy changes nothing.
+        $other = ReviewerTestModel::create();
+        $other->delegateApprovalsTo($deputy);
+        $other->revokeApprovalDelegation($deputy);
+
+        expect($deputy->cancelApproval($deployment)?->status)->toBe(ApprovalStatus::Cancelled);
     });
 
     it('withdraws a held rejection too', function (): void {

@@ -22,7 +22,7 @@ final class CancelApprovalAction
     /**
      * Withdraw the actor's live decision (pending, approved or rejected) on the
      * approvable, if it holds one — or, failing that, the latest live decision it made
-     * on a delegator's behalf.
+     * on behalf of a delegator whose delegation to it is still in force.
      *
      * A withdrawal reaches the same round a decision would: the pinned request, else the
      * approvable's open request, else (a model that never had a request) its standalone
