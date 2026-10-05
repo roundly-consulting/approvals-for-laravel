@@ -23,7 +23,7 @@ abstract class TestCase extends PackageTestCase
     }
 
     /**
-     * The package's six migrations, named by provider class (never by filename), plus
+     * The package's seven migrations, named by provider class (never by filename), plus
      * the host-owned fixture tables the approvables and actors live in.
      *
      * @return list<class-string<ServiceProvider>|string>

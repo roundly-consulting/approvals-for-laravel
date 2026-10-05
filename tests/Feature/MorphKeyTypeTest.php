@@ -2,8 +2,13 @@
 
 declare(strict_types=1);
 
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use RoundlyConsulting\Approvals\Enums\ApprovalRule;
+use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
+use RoundlyConsulting\Approvals\Tests\Fixtures\StringKeyedReleaseTestModel;
+use RoundlyConsulting\Approvals\Tests\Fixtures\StringKeyedReviewerTestModel;
 use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 use RoundlyConsulting\Testing\Database\DriverMatrix;
 
@@ -16,17 +21,27 @@ use RoundlyConsulting\Testing\Database\DriverMatrix;
  *  - a `uuid` / `ulid` host actually gets uuid / char morph id columns, checked on the only
  *    engine (Postgres) whose catalog can tell the three key types apart. SQLite stores all
  *    three as the same affinity, so the check is meaningless there.
+ *
+ * `approval_request_id` is the exception: it points at the package's own bigint
+ * `approval_requests.id`. The shipped create migration still lets it follow the key type,
+ * and `0007` turns the one shape that breaks (a Postgres `uuid` column) into a bigint.
  */
-function runApprovalsMigrations(): void
+function runApprovalsMigrations(bool $upgrade = true): void
 {
-    foreach ([
+    $migrations = [
         '0001_create_approvals_table',
         '0002_create_approval_requests_table',
         '0003_add_v11_columns_to_approvals_table',
         '0004_add_staging_to_approval_requests_table',
         '0005_create_approval_request_stages_table',
         '0006_create_approval_delegations_table',
-    ] as $migration) {
+    ];
+
+    if ($upgrade) {
+        $migrations[] = '0007_change_approval_request_id_to_bigint';
+    }
+
+    foreach ($migrations as $migration) {
         (require __DIR__.'/../../database/migrations/'.$migration.'.php')->up();
     }
 }
@@ -39,6 +54,19 @@ function dropApprovalsTables(): void
 {
     foreach (['approval_request_stages', 'approval_delegations', 'approval_requests', 'approvals'] as $table) {
         Schema::dropIfExists($table);
+    }
+}
+
+/**
+ * Host tables keyed by the configured key type, for the string-keyed fixture models.
+ */
+function createStringKeyedFixtureTables(): void
+{
+    foreach (['string_keyed_releases', 'string_keyed_reviewers'] as $table) {
+        Schema::dropIfExists($table);
+        Schema::create($table, function (Blueprint $table): void {
+            $table->string('id', 36)->primary();
+        });
     }
 }
 
@@ -115,27 +143,98 @@ it('emits the frozen bigint morph schema byte-for-byte', function (): void {
     );
 })->skip($sqliteOnly, 'sqlite_master is the sqlite catalog');
 
-it('renders each configured key type as a distinct real morph column type', function (string $keyType, string $expected): void {
+it('renders each configured key type as a distinct real morph column type', function (string $keyType, string $expected, string $requestId): void {
     config()->set('approvals.key_type', $keyType);
 
     dropApprovalsTables();
     runApprovalsMigrations();
 
-    // Every polymorphic id column follows the configured type, across all three tables.
+    // Every polymorphic id column that points at a host model follows the configured
+    // type, across all three tables.
     expect(pgsqlApprovalsColumnType('approvals', 'actor_id'))->toBe($expected)
         ->and(pgsqlApprovalsColumnType('approvals', 'approvable_id'))->toBe($expected)
-        ->and(pgsqlApprovalsColumnType('approvals', 'approval_request_id'))->toBe($expected)
         ->and(pgsqlApprovalsColumnType('approvals', 'decided_by_id'))->toBe($expected)
         ->and(pgsqlApprovalsColumnType('approval_requests', 'subject_id'))->toBe($expected)
         ->and(pgsqlApprovalsColumnType('approval_delegations', 'delegator_id'))->toBe($expected)
         ->and(pgsqlApprovalsColumnType('approval_delegations', 'delegate_id'))->toBe($expected)
         // The morph *type* column names a class — a string on every key type.
-        ->and(pgsqlApprovalsColumnType('approvals', 'actor_type'))->toBe('character varying(255)');
+        ->and(pgsqlApprovalsColumnType('approvals', 'actor_type'))->toBe('character varying(255)')
+        // A decision's request is the package's own bigint `approval_requests` row. 0007
+        // turns the uuid column 0001 creates into a bigint; a char(26) one already works.
+        ->and(pgsqlApprovalsColumnType('approvals', 'approval_request_id'))->toBe($requestId)
+        ->and(pgsqlApprovalsColumnType('approvals', 'approval_request_type'))->toBe('character varying(255)')
+        ->and(pgsqlApprovalsColumnType('approval_requests', 'id'))->toBe('bigint');
 })->with([
-    'bigint' => ['bigint', 'bigint'],
-    'uuid' => ['uuid', 'uuid'],
-    'ulid' => ['ulid', 'character(26)'],
+    'bigint' => ['bigint', 'bigint', 'bigint'],
+    'uuid' => ['uuid', 'uuid', 'bigint'],
+    'ulid' => ['ulid', 'character(26)', 'character(26)'],
 ])->skip($pgsqlOnly, 'needs the postgres catalog to tell the key types apart');
+
+it('pins approval_request_id after the upgrade migration, per key type and driver', function (string $keyType): void {
+    config()->set('approvals.key_type', $keyType);
+
+    dropApprovalsTables();
+    runApprovalsMigrations();
+
+    $expected = [
+        'sqlite' => ['bigint' => 'integer', 'uuid' => 'varchar', 'ulid' => 'varchar'],
+        'pgsql' => ['bigint' => 'int8', 'uuid' => 'int8', 'ulid' => 'bpchar'],
+    ][DriverMatrix::driver()][$keyType];
+
+    expect(Schema::getColumnType('approvals', 'approval_request_id'))->toBe($expected);
+})->with(['bigint', 'uuid', 'ulid'])
+    ->skip(fn (): bool => ! in_array(DriverMatrix::driver(), ['sqlite', 'pgsql'], true), 'type names are pinned for the drivers CI runs');
+
+it('records a decision on a request on a string-keyed host', function (string $keyType): void {
+    config()->set('approvals.key_type', $keyType);
+
+    dropApprovalsTables();
+    runApprovalsMigrations();
+    createStringKeyedFixtureTables();
+
+    $release = StringKeyedReleaseTestModel::query()->create();
+    $lead = StringKeyedReviewerTestModel::query()->create();
+
+    $request = $release->requestApproval([$lead], ApprovalRule::Unanimous);
+    $approval = $lead->approve($release);
+
+    // A Postgres char(26) column (ulid) pads the id with blanks.
+    expect(trim((string) $approval->fresh()?->approval_request_id))->toBe((string) $request->getKey())
+        ->and($request->fresh()?->status)->toBe(ApprovalStatus::Approved)
+        ->and($request->decisions()->count())->toBe(1);
+})->with(['uuid', 'ulid']);
+
+it('turns a uuid approval_request_id from 1.0.0 into a bigint', function (): void {
+    config()->set('approvals.key_type', 'uuid');
+
+    dropApprovalsTables();
+    runApprovalsMigrations(upgrade: false);
+
+    // The column as the create migration leaves it on a uuid host.
+    expect(pgsqlApprovalsColumnType('approvals', 'approval_request_id'))->toBe('uuid');
+
+    (require __DIR__.'/../../database/migrations/0007_change_approval_request_id_to_bigint.php')->up();
+
+    expect(pgsqlApprovalsColumnType('approvals', 'approval_request_id'))->toBe('bigint');
+
+    // Its (type, id) index survives the change.
+    $indexes = collect(Schema::getIndexes('approvals'))->pluck('columns')->all();
+
+    expect($indexes)->toContain(['approval_request_type', 'approval_request_id']);
+})->skip($pgsqlOnly, 'the column type only diverges on postgres');
+
+it('changes nothing it does not need to, and nothing on a second run', function (string $keyType): void {
+    config()->set('approvals.key_type', $keyType);
+
+    dropApprovalsTables();
+    runApprovalsMigrations();
+
+    $before = Schema::getColumns('approvals');
+
+    (require __DIR__.'/../../database/migrations/0007_change_approval_request_id_to_bigint.php')->up();
+
+    expect(Schema::getColumns('approvals'))->toBe($before);
+})->with(['bigint', 'uuid', 'ulid']);
 
 it('refuses to migrate on an unrecognized key type instead of falling back to bigint', function (): void {
     config()->set('approvals.key_type', 'nonsense');
