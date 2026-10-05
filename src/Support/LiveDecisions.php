@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Approvals\DataTransferObjects\DecisionTarget;
 use RoundlyConsulting\Approvals\Models\Approval;
 use RoundlyConsulting\Approvals\Models\ApprovalRequest;
+use RoundlyConsulting\Approvals\Models\ApprovalRequestStage;
 
 /**
  * Reads the live decisions the decision actions build on. Resolved from the container
@@ -40,12 +41,15 @@ final class LiveDecisions
     /**
      * The latest live, in-force decision `$model` can withdraw on the approvable: one it
      * holds as the actor, else one it made on behalf of a delegator whose delegation to
-     * it is still in force. Limited to one request when given.
+     * it is still in force. Limited to one request when given — and, on a staged
+     * request, to its open stage: a settled stage's decisions are what settled it.
      */
     public function withdrawableBy(Model $model, Model $approvable, ?ApprovalRequest $request = null): ?Approval
     {
-        return $this->withdrawable('actor', $model, $approvable, $request)
-            ?? $this->withdrawableAsDelegate($model, $approvable, $request);
+        $stage = $request instanceof ApprovalRequest && $request->staged ? $request->currentStage() : null;
+
+        return $this->withdrawable('actor', $model, $approvable, $request, $stage)
+            ?? $this->withdrawableAsDelegate($model, $approvable, $request, $stage);
     }
 
     /**
@@ -53,15 +57,19 @@ final class LiveDecisions
      * Once that delegation is revoked or has ended, the delegate no longer speaks for the
      * delegator — not even to undo what it decided for them.
      */
-    private function withdrawableAsDelegate(Model $delegate, Model $approvable, ?ApprovalRequest $request): ?Approval
-    {
+    private function withdrawableAsDelegate(
+        Model $delegate,
+        Model $approvable,
+        ?ApprovalRequest $request,
+        ?ApprovalRequestStage $stage,
+    ): ?Approval {
         $delegations = app(DelegationResolver::class)->activeDelegationsTo($delegate);
 
         if ($delegations->isEmpty()) {
             return null;
         }
 
-        return $this->withdrawable('decidedBy', $delegate, $approvable, $request, static function (Builder $query) use ($delegations): void {
+        return $this->withdrawable('decidedBy', $delegate, $approvable, $request, $stage, static function (Builder $query) use ($delegations): void {
             $query->where(static function (Builder $actors) use ($delegations): void {
                 foreach ($delegations as $delegation) {
                     $actors->orWhere(static function (Builder $actor) use ($delegation): void {
@@ -81,6 +89,7 @@ final class LiveDecisions
         Model $model,
         Model $approvable,
         ?ApprovalRequest $request,
+        ?ApprovalRequestStage $stage,
         ?Closure $constrain = null,
     ): ?Approval {
         $class = ApprovalModelResolver::class();
@@ -93,6 +102,11 @@ final class LiveDecisions
 
         if ($request instanceof ApprovalRequest) {
             $query->where('approval_request_id', $request->getKey());
+
+            if ($request->staged) {
+                // No open stage means nothing in the request can be withdrawn.
+                $query->where('approval_request_stage_id', $stage?->getKey());
+            }
         }
 
         if ($constrain instanceof Closure) {

@@ -279,3 +279,39 @@ it('refuses an unnamed stage that needs no approvals, and writes nothing', funct
         ->and(ApprovalRequest::query()->count())->toBe(0)
         ->and(ApprovalRequestStage::query()->count())->toBe(0);
 })->with([ApprovalRule::Unanimous, ApprovalRule::Quorum, ApprovalRule::Weighted]);
+
+it('does not withdraw a decision from a settled stage', function (): void {
+    $release = ReleaseTestModel::create();
+    [$a, $b] = [ReviewerTestModel::create(), ReviewerTestModel::create()];
+
+    $request = $release->requestStagedApproval([
+        new StageDefinition([$a], ApprovalRule::Any),
+        new StageDefinition([$b], ApprovalRule::Any),
+    ]);
+
+    $approval = $a->approve($release);
+
+    Event::fake([ApprovalCancelled::class]);
+
+    expect($a->cancelApproval($release))->toBeNull()
+        ->and(Approvals::for($release)->as($a)->within($request)->cancel())->toBeNull()
+        ->and($approval->fresh()?->status)->toBe(ApprovalStatus::Approved)
+        ->and($approval->fresh()?->live)->toBeTrue();
+
+    Event::assertNotDispatched(ApprovalCancelled::class);
+});
+
+it('withdraws a decision from the open stage', function (): void {
+    $release = ReleaseTestModel::create();
+    [$a, $b] = [ReviewerTestModel::create(), ReviewerTestModel::create()];
+
+    $release->requestStagedApproval([
+        new StageDefinition([$a, $b], ApprovalRule::Unanimous),
+        new StageDefinition([ReviewerTestModel::create()], ApprovalRule::Any),
+    ]);
+
+    $approval = $a->approve($release);
+
+    expect($a->cancelApproval($release)?->is($approval))->toBeTrue()
+        ->and($approval->fresh()?->status)->toBe(ApprovalStatus::Cancelled);
+});
