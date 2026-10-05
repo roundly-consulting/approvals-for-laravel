@@ -6,6 +6,47 @@ All notable changes to `approvals-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+### Fixed
+
+- Rejecting an ask no longer keeps the ask's reply-by deadline. Before, once that deadline passed
+  the rejection stopped counting, and every later approve, reject, toggle or ask by that actor on
+  the model failed with `InvalidStatusTransitionException`. Slots already stuck this way free
+  themselves on the actor's next decision.
+- PostgreSQL with `key_type` `uuid`: every decision on a request failed, because
+  `approvals.approval_request_id` was a uuid column pointing at the bigint `approval_requests.id`.
+  A new migration turns it into a bigint. See **Changed**.
+- When a request resolves (approved, rejected or expired), the asks still outstanding in it are
+  cancelled, and so are a stage's asks when the stage settles. Before, they stayed pending forever,
+  and the asked actor could neither answer nor withdraw them.
+- `currentStage()` (facade, trait and model) and `progress()->currentStage` return `null` once a
+  staged request is closed or past its expiry. Before, they reported a stage of a finished request.
+- Withdrawing a decision (`cancel()` / `cancelApproval()`) on a staged request only reaches the
+  open stage. Before, it could cancel a decision of a stage that had already settled.
+- `progress()` / `approvalProgress()` report `expired` for a request past its expiry, as
+  `status()` already did.
+
+### Changed
+
+- Opening a request or stage that could never be approved now throws
+  `InvalidApprovalRequestException`: a request without named approvers under the default
+  `unanimous` rule, `quorum` / `weighted` with neither a quorum nor `requiredApprovers`, or
+  `requiredApprovers: 0`. Before, such a request opened and never resolved. To open one without
+  names, use `->any()`, `->quorum(n)` or `requiredApprovers: n`.
+- Toggling an approval off now also dispatches `ApprovalCancelled`, as `cancel()` does, and a
+  retired ask dispatches it too. If you listen to both `ApprovalCancelled` and `ApprovalToggled`,
+  check that a toggle-off is not handled twice.
+- `ApprovalDelegation::revoke($at)` with a moment in the future now throws
+  `InvalidDelegationException`. A revocation takes effect at once and cannot be scheduled; give
+  the delegation an end date (`->until()`) instead.
+- New migration `0007_change_approval_request_id_to_bigint`. Publish it
+  (`php artisan vendor:publish --tag=approvals-migrations`) and run `php artisan migrate`. It only
+  acts on PostgreSQL with `key_type` `uuid`; anywhere else it does nothing.
+
+### Security
+
+- A delegate whose delegation was revoked or has ended could still withdraw the decisions it had
+  made for the delegator. It no longer can; only the delegator can withdraw them now.
+
 ## 1.0.0 - 2026-10-03
 
 Initial public release.
