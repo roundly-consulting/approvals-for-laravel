@@ -6,6 +6,28 @@ All notable changes to `approvals-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+## 1.0.1 - 2026-10-05
+
+### Changed
+
+- New migration `0007_change_approval_request_id_to_bigint`. To upgrade, publish it
+  (`php artisan vendor:publish --tag=approvals-migrations`; the migrations you already published
+  stay as they are) and run `php artisan migrate`. It only acts on PostgreSQL with `key_type`
+  `uuid`; anywhere else it does nothing.
+- Opening a request or stage that could never be approved now throws
+  `InvalidApprovalRequestException`: a request without named approvers under the default
+  `unanimous` rule, `quorum` / `weighted` with neither a quorum nor `requiredApprovers`, or
+  `requiredApprovers: 0`. Before, such a request opened and never resolved. To open one without
+  names, use `->any()`, `->quorum(n)` or `requiredApprovers: n`.
+- Toggling an approval off now also dispatches `ApprovalCancelled`, as `cancel()` does, and a
+  retired ask dispatches it too. If you listen to both `ApprovalCancelled` and `ApprovalToggled`,
+  check that a toggle-off is not handled twice.
+- `ApprovalDelegation::revoke($at)` with a moment in the future now throws
+  `InvalidDelegationException`. A revocation takes effect at once and cannot be scheduled; give
+  the delegation an end date (`->until()`) instead.
+- Documentation: the README banner loads from an absolute URL, so it also shows on Packagist.
+- Maintenance: the `composer.json` `homepage` and `support.docs` point at the documentation site.
+
 ### Fixed
 
 - Rejecting an ask no longer keeps the ask's reply-by deadline. Before, once that deadline passed
@@ -24,23 +46,6 @@ All notable changes to `approvals-for-laravel` are documented in this file. The 
   open stage. Before, it could cancel a decision of a stage that had already settled.
 - `progress()` / `approvalProgress()` report `expired` for a request past its expiry, as
   `status()` already did.
-
-### Changed
-
-- Opening a request or stage that could never be approved now throws
-  `InvalidApprovalRequestException`: a request without named approvers under the default
-  `unanimous` rule, `quorum` / `weighted` with neither a quorum nor `requiredApprovers`, or
-  `requiredApprovers: 0`. Before, such a request opened and never resolved. To open one without
-  names, use `->any()`, `->quorum(n)` or `requiredApprovers: n`.
-- Toggling an approval off now also dispatches `ApprovalCancelled`, as `cancel()` does, and a
-  retired ask dispatches it too. If you listen to both `ApprovalCancelled` and `ApprovalToggled`,
-  check that a toggle-off is not handled twice.
-- `ApprovalDelegation::revoke($at)` with a moment in the future now throws
-  `InvalidDelegationException`. A revocation takes effect at once and cannot be scheduled; give
-  the delegation an end date (`->until()`) instead.
-- New migration `0007_change_approval_request_id_to_bigint`. Publish it
-  (`php artisan vendor:publish --tag=approvals-migrations`) and run `php artisan migrate`. It only
-  acts on PostgreSQL with `key_type` `uuid`; anywhere else it does nothing.
 
 ### Security
 
