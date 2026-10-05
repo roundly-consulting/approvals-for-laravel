@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Approvals\Actions\Concerns\AuthorizesDecisions;
 use RoundlyConsulting\Approvals\Actions\Concerns\ResolvesApproval;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
+use RoundlyConsulting\Approvals\Events\ApprovalCancelled;
 use RoundlyConsulting\Approvals\Events\ApprovalStatusChanged;
 use RoundlyConsulting\Approvals\Events\ApprovalToggled;
 use RoundlyConsulting\Approvals\Models\Approval;
@@ -27,7 +28,8 @@ final class ToggleApprovalAction
      * (the approvable's open request, or standalone) it approves — through the same path
      * as approve(), so the gate, delegation and the request's rule all apply, and a
      * held rejection is superseded. With a live approval it withdraws and soft-deletes
-     * it. Either way a closed round refuses it (ClosedApprovalRequestException).
+     * it, firing ApprovalCancelled like cancel() does. Either way a closed round refuses
+     * it (ClosedApprovalRequestException).
      *
      * @return bool true when the approval was created, false when it was removed
      */
@@ -49,6 +51,8 @@ final class ToggleApprovalAction
                 $live->delete();
             });
 
+            // Toggling off withdraws the approval, so it announces it as cancel() does.
+            ApprovalCancelled::dispatch($live);
             ApprovalStatusChanged::dispatch($live, ApprovalStatus::Approved, ApprovalStatus::Cancelled, $target->actor);
             ApprovalToggled::dispatch($actor, $approvable, false);
 
