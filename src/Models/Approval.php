@@ -217,12 +217,17 @@ class Approval extends Model
         return $this;
     }
 
+    /**
+     * Reject the decision. A rejection stands until it is withdrawn or superseded, so an
+     * answered ask's reply-by deadline is dropped rather than carried over.
+     */
     public function reject(?string $reason = null): static
     {
         $this->transitionTo(ApprovalStatus::Rejected);
 
         $this->reason = $reason ?? $this->reason;
         $this->decided_at = CarbonImmutable::now();
+        $this->expires_at = null;
         $this->save();
 
         return $this;

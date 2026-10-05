@@ -78,6 +78,51 @@ describe('an expiring approval', function (): void {
 
         expect($approval->expires_at)->toBeNull();
     });
+
+    it('a rejected ask drops its reply-by deadline and the slot stays usable after it', function (): void {
+        $deployment = DeploymentTestModel::create();
+        $cfo = ReviewerTestModel::create();
+
+        Approvals::for($deployment)->as($cfo)->expiresIn(3600)->ask();
+        $rejection = $cfo->reject($deployment);
+
+        expect($rejection->expires_at)->toBeNull();
+
+        twoDaysLater();
+
+        // The rejection still stands once the ask's deadline has passed.
+        expect($cfo->hasRejected($deployment))->toBeTrue();
+
+        // And every later decision in the slot goes through.
+        expect($cfo->approve($deployment)->status)->toBe(ApprovalStatus::Approved)
+            ->and($cfo->reject($deployment)->status)->toBe(ApprovalStatus::Rejected)
+            ->and($cfo->toggleApproval($deployment))->toBeTrue()
+            ->and(Approval::query()->live()->sole()->status)->toBe(ApprovalStatus::Approved);
+    });
+
+    it('unblocks a slot whose rejection kept an ask deadline that has passed', function (string $next): void {
+        $deployment = DeploymentTestModel::create();
+        $cfo = ReviewerTestModel::create();
+
+        // A rejection written before the fix: it kept the ask's reply-by deadline.
+        $stale = Approval::factory()->rejected()->forActor($cfo)->forApprovable($deployment)->create([
+            'expires_at' => CarbonImmutable::now()->addHour(),
+        ]);
+
+        twoDaysLater();
+
+        $decision = match ($next) {
+            'approve' => $cfo->approve($deployment),
+            'reject' => $cfo->reject($deployment),
+            'ask' => Approvals::for($deployment)->as($cfo)->ask(),
+            'toggle' => $cfo->toggleApproval($deployment),
+        };
+
+        expect($decision)->not->toBeFalse()
+            ->and($stale->fresh()?->status)->toBe(ApprovalStatus::Cancelled)
+            ->and($stale->fresh()?->live)->toBeNull()
+            ->and(Approval::query()->live()->count())->toBe(1);
+    })->with(['approve', 'reject', 'ask', 'toggle']);
 });
 
 describe('the default approval lifetime', function (): void {

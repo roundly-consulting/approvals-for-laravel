@@ -90,6 +90,10 @@ trait ResolvesApproval
     /**
      * Lapse the actor's live decision in the target's slot if its expiry has passed, so
      * the slot is free for a new decision (the unique index would refuse one otherwise).
+     *
+     * A rejection cannot expire. One that still carries a passed deadline (written before
+     * reject() dropped an answered ask's reply-by) is retired as cancelled instead, the
+     * way a change of mind supersedes it.
      */
     protected function lapseOverdueDecision(DecisionTarget $target): void
     {
@@ -100,6 +104,14 @@ trait ResolvesApproval
         }
 
         $from = $live->status;
+
+        if (! $from->canTransitionTo(ApprovalStatus::Expired)) {
+            $live->cancel();
+
+            ApprovalStatusChanged::dispatch($live, $from, ApprovalStatus::Cancelled, $target->actor);
+
+            return;
+        }
 
         $live->markExpired();
 
