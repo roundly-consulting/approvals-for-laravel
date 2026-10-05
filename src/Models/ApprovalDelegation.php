@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use RoundlyConsulting\Approvals\Database\Factories\ApprovalDelegationFactory;
+use RoundlyConsulting\Approvals\Exceptions\InvalidDelegationException;
 
 /**
  * @property int $id
@@ -122,11 +123,24 @@ class ApprovalDelegation extends Model
             });
     }
 
+    /**
+     * Revoke the delegation. Revocation is a kill switch: it ends the delegation at once,
+     * for every moment, and `$at` only records when it happened (now when omitted). A
+     * moment still in the future is refused — a revocation cannot be scheduled; end a
+     * delegation later with its `ends_at` instead.
+     *
+     * @throws InvalidDelegationException
+     */
     public function revoke(?CarbonInterface $at = null): static
     {
-        $this->revoked_at = $at === null
-            ? CarbonImmutable::now()
-            : CarbonImmutable::instance($at->toDateTimeImmutable());
+        $now = CarbonImmutable::now();
+        $at = $at === null ? $now : CarbonImmutable::instance($at->toDateTimeImmutable());
+
+        if ($at->greaterThan($now)) {
+            throw InvalidDelegationException::futureRevocation($at);
+        }
+
+        $this->revoked_at = $at;
         $this->save();
 
         return $this;

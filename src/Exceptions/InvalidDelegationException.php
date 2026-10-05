@@ -13,6 +13,17 @@ final class InvalidDelegationException extends ApprovalsException
         return new self('An approver cannot delegate approval authority to itself.');
     }
 
+    /**
+     * A revocation was dated in the future: revoking ends a delegation at once, so it
+     * cannot be scheduled.
+     */
+    public static function futureRevocation(CarbonInterface $at): self
+    {
+        return new self(
+            "A delegation cannot be revoked at [{$at->toIso8601String()}]: revocation takes effect at once, so it cannot be scheduled."
+        );
+    }
+
     public static function endsBeforeStart(CarbonInterface $startsAt, CarbonInterface $endsAt): self
     {
         return new self(

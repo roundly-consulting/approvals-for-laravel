@@ -199,3 +199,25 @@ it('leaves an already-ended delegation alone when revoking', function (): void {
     expect($boss->revokeApprovalDelegation())->toBe(0)
         ->and($ended->fresh()?->revoked_at)->toBeNull();
 });
+
+it('refuses to revoke at a future moment, and leaves the delegation in force', function (): void {
+    CarbonImmutable::setTestNow('2026-09-28 12:00:00');
+
+    $delegation = ApprovalDelegation::factory()->create();
+
+    expect(fn () => $delegation->revoke(CarbonImmutable::now()->addWeek()))
+        ->toThrow(InvalidDelegationException::class, 'A delegation cannot be revoked at [2026-10-05T12:00:00+00:00]: revocation takes effect at once, so it cannot be scheduled.')
+        ->and($delegation->fresh()?->revoked_at)->toBeNull()
+        ->and($delegation->fresh()?->isActiveAt())->toBeTrue();
+});
+
+it('records a revocation now or at a past moment', function (?string $at): void {
+    CarbonImmutable::setTestNow('2026-09-28 12:00:00');
+
+    $delegation = ApprovalDelegation::factory()->create();
+
+    $delegation->revoke($at === null ? null : CarbonImmutable::parse($at));
+
+    expect($delegation->fresh()?->revoked_at?->toDateTimeString())->toBe($at ?? '2026-09-28 12:00:00')
+        ->and($delegation->fresh()?->isActiveAt())->toBeFalse();
+})->with(['now' => null, 'this very moment' => '2026-09-28 12:00:00', 'earlier' => '2026-09-27 09:30:00']);
