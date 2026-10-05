@@ -6,8 +6,10 @@ use Illuminate\Support\Facades\Event;
 use RoundlyConsulting\Approvals\DataTransferObjects\StageDefinition;
 use RoundlyConsulting\Approvals\Enums\ApprovalRule;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
+use RoundlyConsulting\Approvals\Events\ApprovalCancelled;
 use RoundlyConsulting\Approvals\Events\ApprovalStageCleared;
 use RoundlyConsulting\Approvals\Events\ApprovalStageOpened;
+use RoundlyConsulting\Approvals\Facades\Approvals;
 use RoundlyConsulting\Approvals\Tests\ReleaseTestModel;
 use RoundlyConsulting\Approvals\Tests\ReviewerTestModel;
 
@@ -178,4 +180,45 @@ it('stamps an expiry on a staged request opened through the trait', function ():
 
     expect($request->expires_at?->equalTo($expires))->toBeTrue()
         ->and($request->reject_on_stage_rejection)->toBeFalse();
+});
+
+it('retires a stage\'s pending asks when it settles', function (): void {
+    $release = ReleaseTestModel::create();
+    [$a, $b, $c] = [ReviewerTestModel::create(), ReviewerTestModel::create(), ReviewerTestModel::create()];
+
+    $request = $release->requestStagedApproval([
+        new StageDefinition([$a, $b], ApprovalRule::Any),
+        new StageDefinition([$c], ApprovalRule::Any),
+    ]);
+
+    $ask = Approvals::for($release)->as($b)->ask();
+
+    Event::fake([ApprovalCancelled::class]);
+
+    $a->approve($release);
+
+    expect($request->fresh()?->status)->toBe(ApprovalStatus::Pending)
+        ->and($release->currentStage()?->position)->toBe(2)
+        ->and($release->pendingApprovals())->toHaveCount(0)
+        ->and($ask->fresh()?->status)->toBe(ApprovalStatus::Cancelled)
+        ->and($ask->fresh()?->live)->toBeNull();
+
+    Event::assertDispatchedTimes(ApprovalCancelled::class, 1);
+});
+
+it('keeps the open stage\'s asks when an earlier stage settles', function (): void {
+    $release = ReleaseTestModel::create();
+    [$a, $c] = [ReviewerTestModel::create(), ReviewerTestModel::create()];
+
+    $release->requestStagedApproval([
+        new StageDefinition([$a], ApprovalRule::Any),
+        new StageDefinition([$c], ApprovalRule::Any),
+    ]);
+
+    $a->approve($release);
+
+    $ask = Approvals::for($release)->as($c)->ask();
+
+    expect($ask->status)->toBe(ApprovalStatus::Pending)
+        ->and($release->pendingApprovals())->toHaveCount(1);
 });

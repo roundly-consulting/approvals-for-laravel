@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Approvals\Models;
 
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -19,6 +20,7 @@ use RoundlyConsulting\Approvals\DataTransferObjects\DecisionTally;
 use RoundlyConsulting\Approvals\DataTransferObjects\NamedApprover;
 use RoundlyConsulting\Approvals\Enums\ApprovalRule;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
+use RoundlyConsulting\Approvals\Events\ApprovalCancelled;
 use RoundlyConsulting\Approvals\Events\ApprovalRequestResolved;
 use RoundlyConsulting\Approvals\Events\ApprovalStageCleared;
 use RoundlyConsulting\Approvals\Events\ApprovalStageOpened;
@@ -231,6 +233,9 @@ class ApprovalRequest extends Model
                 return $this;
             }
 
+            // The stage takes no more decisions, so nobody is waiting on its asks.
+            $this->retireOutstandingAsks($stage->decisions()->getQuery());
+
             if ($outcome === ApprovalStatus::Rejected && $this->reject_on_stage_rejection) {
                 $this->finalize(ApprovalStatus::Rejected);
 
@@ -357,10 +362,34 @@ class ApprovalRequest extends Model
             return false;
         }
 
+        // The round takes no more decisions: retire its asks before announcing it, so a
+        // listener never sees a resolved request still waiting on someone.
+        $this->retireOutstandingAsks($this->decisions()->getQuery());
+
         ApprovalRequestResolved::dispatch($this);
         ApprovalStatusChanged::dispatch($this, $from, $outcome);
 
         return true;
+    }
+
+    /**
+     * Withdraw the asks still outstanding in a round that takes no more decisions (the
+     * request resolved, or the stage they belong to settled), firing ApprovalCancelled
+     * and ApprovalStatusChanged (pending → cancelled) for each. Left live, they would
+     * keep showing as pending, and the asked actor could neither answer nor withdraw them.
+     *
+     * @param  Builder<Approval>  $decisions
+     */
+    private function retireOutstandingAsks(Builder $decisions): void
+    {
+        $asks = $decisions->where('status', ApprovalStatus::Pending)->where('live', true)->get();
+
+        foreach ($asks as $ask) {
+            $ask->cancel();
+
+            ApprovalCancelled::dispatch($ask);
+            ApprovalStatusChanged::dispatch($ask, ApprovalStatus::Pending, ApprovalStatus::Cancelled);
+        }
     }
 
     /**

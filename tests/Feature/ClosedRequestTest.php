@@ -3,11 +3,13 @@
 declare(strict_types=1);
 
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Event;
 use RoundlyConsulting\Approvals\DataTransferObjects\DecisionTarget;
 use RoundlyConsulting\Approvals\Enums\ApprovalRule;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Events\ApprovalApproved;
+use RoundlyConsulting\Approvals\Events\ApprovalCancelled;
 use RoundlyConsulting\Approvals\Events\ApprovalStatusChanged;
 use RoundlyConsulting\Approvals\Exceptions\ApprovalsException;
 use RoundlyConsulting\Approvals\Exceptions\ClosedApprovalRequestException;
@@ -310,6 +312,82 @@ describe('a round closing between the read and the write', function (): void {
 
         expect(fn () => $lead->cancelApproval($release))->toThrow(ClosedApprovalRequestException::class, 'is closed (rejected)')
             ->and($approval->fresh()?->status)->toBe(ApprovalStatus::Approved);
+    });
+});
+
+describe('the outstanding asks of a round', function (): void {
+    it('retires outstanding asks when the request resolves', function (): void {
+        $release = ReleaseTestModel::create();
+        [$a, $b, $c] = [ReviewerTestModel::create(), ReviewerTestModel::create(), ReviewerTestModel::create()];
+
+        $request = Approvals::request($release)->from([$a, $b, $c])->any()->open();
+
+        $askB = Approvals::for($release)->as($b)->ask();
+        $askC = Approvals::for($release)->as($c)->ask();
+
+        Event::fake([ApprovalCancelled::class, ApprovalStatusChanged::class]);
+
+        $a->approve($release);
+
+        expect($request->fresh()?->status)->toBe(ApprovalStatus::Approved)
+            ->and($release->pendingApprovals())->toHaveCount(0)
+            ->and(Approvals::for($release)->hasPending())->toBeFalse()
+            ->and(Blade::check('pendingApproval', $release))->toBeFalse()
+            ->and($askB->fresh()?->status)->toBe(ApprovalStatus::Cancelled)
+            ->and($askB->fresh()?->live)->toBeNull()
+            ->and($askC->fresh()?->status)->toBe(ApprovalStatus::Cancelled)
+            ->and($askC->fresh()?->live)->toBeNull();
+
+        Event::assertDispatchedTimes(ApprovalCancelled::class, 2);
+        Event::assertDispatched(
+            ApprovalStatusChanged::class,
+            fn (ApprovalStatusChanged $event): bool => $event->subject instanceof Approval
+                && $event->subject->is($askB)
+                && $event->from === ApprovalStatus::Pending
+                && $event->to === ApprovalStatus::Cancelled,
+        );
+    });
+
+    it('retires outstanding asks when the request lapses', function (): void {
+        CarbonImmutable::setTestNow('2026-09-28 12:00:00');
+
+        $release = ReleaseTestModel::create();
+        [$a, $b] = [ReviewerTestModel::create(), ReviewerTestModel::create()];
+
+        $request = Approvals::request($release)->from([$a, $b])->expiresIn(60)->open();
+        $ask = Approvals::for($release)->as($b)->ask();
+
+        CarbonImmutable::setTestNow('2026-09-28 13:00:00');
+
+        expect(Approvals::expire())->toBe(1)
+            ->and($request->fresh()?->status)->toBe(ApprovalStatus::Expired)
+            ->and($ask->fresh()?->status)->toBe(ApprovalStatus::Cancelled)
+            ->and($release->pendingApprovals())->toHaveCount(0);
+    });
+
+    it('leaves the decisions already made alone', function (): void {
+        $release = ReleaseTestModel::create();
+        [$a, $b] = [ReviewerTestModel::create(), ReviewerTestModel::create()];
+
+        Approvals::request($release)->from([$a, $b])->open();
+
+        $approval = $a->approve($release);
+        $rejection = $b->reject($release);
+
+        expect($approval->fresh()?->status)->toBe(ApprovalStatus::Approved)
+            ->and($rejection->fresh()?->status)->toBe(ApprovalStatus::Rejected)
+            ->and(Approval::query()->live()->count())->toBe(2);
+    });
+
+    it('leaves a standalone ask on the same subject alone', function (): void {
+        $deployment = DeploymentTestModel::create();
+        $ask = Approvals::for($deployment)->as(ReviewerTestModel::create())->ask();
+
+        $lead = ReviewerTestModel::create();
+        Approvals::request($deployment)->from([$lead])->any()->open();
+        $lead->approve($deployment);
+
+        expect($ask->fresh()?->status)->toBe(ApprovalStatus::Pending);
     });
 });
 
