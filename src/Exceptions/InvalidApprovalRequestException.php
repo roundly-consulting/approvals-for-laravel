@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Approvals\Exceptions;
 
 use Illuminate\Database\Eloquent\Model;
+use RoundlyConsulting\Approvals\Enums\ApprovalRule;
 use RoundlyConsulting\Approvals\Models\ApprovalRequest;
 
 final class InvalidApprovalRequestException extends ApprovalsException
@@ -43,6 +44,18 @@ final class InvalidApprovalRequestException extends ApprovalsException
     public static function moreRequiredThanNamed(int $required, int $named): self
     {
         return new self("An approval request cannot require {$required} approvals from {$named} named approver(s).");
+    }
+
+    /**
+     * A request (or stage) that needs no approvals: its rule only approves once a figure
+     * above zero is reached, so it could never be approved.
+     */
+    public static function needsNoApprovals(ApprovalRule $rule): self
+    {
+        return new self(
+            "An approval request under the [{$rule->value}] rule needs at least one approval to resolve: "
+            .'name its approvers, set how many approvals it needs or a quorum, or use the [any] rule.'
+        );
     }
 
     public static function thresholdBelowOne(int $quorum): self

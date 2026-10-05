@@ -10,7 +10,10 @@ use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Events\ApprovalCancelled;
 use RoundlyConsulting\Approvals\Events\ApprovalStageCleared;
 use RoundlyConsulting\Approvals\Events\ApprovalStageOpened;
+use RoundlyConsulting\Approvals\Exceptions\InvalidApprovalRequestException;
 use RoundlyConsulting\Approvals\Facades\Approvals;
+use RoundlyConsulting\Approvals\Models\ApprovalRequest;
+use RoundlyConsulting\Approvals\Models\ApprovalRequestStage;
 use RoundlyConsulting\Approvals\Tests\ReleaseTestModel;
 use RoundlyConsulting\Approvals\Tests\ReviewerTestModel;
 
@@ -265,3 +268,14 @@ it('has no current stage once the request is overdue', function (): void {
 
     expect(Approvals::currentStage($release))->toBeNull();
 });
+
+it('refuses an unnamed stage that needs no approvals, and writes nothing', function (ApprovalRule $rule): void {
+    $release = ReleaseTestModel::create();
+
+    expect(fn () => $release->requestStagedApproval([
+        new StageDefinition([ReviewerTestModel::create()], ApprovalRule::Any),
+        new StageDefinition([], $rule),
+    ]))->toThrow(InvalidApprovalRequestException::class, 'needs at least one approval')
+        ->and(ApprovalRequest::query()->count())->toBe(0)
+        ->and(ApprovalRequestStage::query()->count())->toBe(0);
+})->with([ApprovalRule::Unanimous, ApprovalRule::Quorum, ApprovalRule::Weighted]);

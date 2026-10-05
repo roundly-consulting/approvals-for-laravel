@@ -77,10 +77,18 @@ final class ApproverList
     }
 
     /**
-     * Refuse a quorum/weighted threshold that could never be met: below 1, above the
-     * total weight the named approvers carry, or — for a Quorum request without names,
-     * where each approver counts as 1 — above its headcount. (An unnamed Weighted
-     * request cannot know what its approvers weigh, so its threshold is taken on trust.)
+     * Refuse a request (or stage) its rule could never approve.
+     *
+     * Unanimous approves once `required` approvals are in, and Quorum / Weighted once
+     * the approvals reach `quorum ?? required`; a figure below 1 is never reached, so
+     * such a request could only ever be rejected (an unnamed request under the default
+     * rule, for one). Any approves on the first approval and is always reachable.
+     *
+     * A quorum/weighted threshold is refused too when it could never be met: below 1,
+     * above the total weight the named approvers carry, or — for a Quorum request
+     * without names, where each approver counts as 1 — above its headcount. (An unnamed
+     * Weighted request cannot know what its approvers weigh, so its threshold is taken
+     * on trust.)
      *
      * Per-decision `weight()` overrides are not anticipated: give approvers their
      * weight through `ProvidesApprovalWeight` when a request depends on it.
@@ -89,12 +97,22 @@ final class ApproverList
      */
     public static function ensureReachable(ApprovalRule $rule, ?int $quorum, int $required, array $named): void
     {
-        if (! $rule->isWeighted()) {
-            return;
+        if ($rule->isWeighted() && $quorum !== null && $quorum < 1) {
+            throw InvalidApprovalRequestException::thresholdBelowOne($quorum);
         }
 
-        if ($quorum !== null && $quorum < 1) {
-            throw InvalidApprovalRequestException::thresholdBelowOne($quorum);
+        $needed = match ($rule) {
+            ApprovalRule::Any => 1,
+            ApprovalRule::Unanimous => $required,
+            ApprovalRule::Quorum, ApprovalRule::Weighted => $quorum ?? $required,
+        };
+
+        if ($needed < 1) {
+            throw InvalidApprovalRequestException::needsNoApprovals($rule);
+        }
+
+        if (! $rule->isWeighted()) {
+            return;
         }
 
         $threshold = $quorum ?? $required;
