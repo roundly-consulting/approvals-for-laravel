@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Event;
 use RoundlyConsulting\Approvals\DataTransferObjects\StageDefinition;
 use RoundlyConsulting\Approvals\Enums\ApprovalRule;
@@ -12,6 +13,8 @@ use RoundlyConsulting\Approvals\Events\ApprovalStageOpened;
 use RoundlyConsulting\Approvals\Facades\Approvals;
 use RoundlyConsulting\Approvals\Tests\ReleaseTestModel;
 use RoundlyConsulting\Approvals\Tests\ReviewerTestModel;
+
+afterEach(fn () => CarbonImmutable::setTestNow());
 
 it('opens stage one immediately and gates later stages', function (): void {
     $release = ReleaseTestModel::create();
@@ -221,4 +224,44 @@ it('keeps the open stage\'s asks when an earlier stage settles', function (): vo
 
     expect($ask->status)->toBe(ApprovalStatus::Pending)
         ->and($release->pendingApprovals())->toHaveCount(1);
+});
+
+it('has no current stage once the request is rejected', function (): void {
+    $release = ReleaseTestModel::create();
+    [$eng, $product] = [ReviewerTestModel::create(), ReviewerTestModel::create()];
+
+    $request = $release->requestStagedApproval([
+        new StageDefinition([$eng], ApprovalRule::Any),
+        new StageDefinition([$product], ApprovalRule::Any),
+    ]);
+
+    $eng->reject($release);
+
+    expect($request->fresh()?->status)->toBe(ApprovalStatus::Rejected)
+        ->and(Approvals::currentStage($release))->toBeNull()
+        ->and($release->currentStage())->toBeNull()
+        ->and(Approvals::progress($release)?->currentStage)->toBeNull()
+        ->and($request->fresh()?->hasNamedApprover($product))->toBeFalse();
+});
+
+it('has no current stage once the request is overdue', function (): void {
+    CarbonImmutable::setTestNow('2026-09-28 12:00:00');
+
+    $release = ReleaseTestModel::create();
+    [$eng, $product] = [ReviewerTestModel::create(), ReviewerTestModel::create()];
+
+    Approvals::request($release)->stages([
+        new StageDefinition([$eng], ApprovalRule::Any),
+        new StageDefinition([$product], ApprovalRule::Any),
+    ])->expiresIn(60)->open();
+
+    CarbonImmutable::setTestNow('2026-09-28 12:05:00');
+
+    expect(Approvals::status($release))->toBe(ApprovalStatus::Expired)
+        ->and(Approvals::currentStage($release))->toBeNull()
+        ->and(Approvals::progress($release)?->currentStage)->toBeNull();
+
+    Approvals::expire();
+
+    expect(Approvals::currentStage($release))->toBeNull();
 });

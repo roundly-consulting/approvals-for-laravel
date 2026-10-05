@@ -134,10 +134,11 @@ class ApprovalRequest extends Model
 
     /**
      * The stage currently open for decisions, if the request is staged and still pending.
+     * A closed request, or one past its expiry, has none.
      */
     public function currentStage(): ?ApprovalRequestStage
     {
-        if (! $this->staged) {
+        if (! $this->staged || $this->status !== ApprovalStatus::Pending || $this->isOverdue()) {
             return null;
         }
 
