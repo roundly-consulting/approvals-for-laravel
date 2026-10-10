@@ -15,6 +15,19 @@ All notable changes to `approvals-for-laravel` are documented in this file. The 
   `Approval::reject()` called directly. Withdrawals are unchanged: `cancel()` or toggling off
   without a reason, a superseded decision and an ask retired when its round closes keep the
   decision's own reason, and repeating a decision the actor already holds changes nothing.
+- `reject()` dropped `expiresIn()` / `expiringAt()` silently. A rejection has no expiry, so
+  `reject()` now throws `InvalidApprovalRequestException` when one was set, and records nothing.
+  `because()`, `weight()` and `within()` still apply, and a bare `reject()` works as before.
+- `cancel()` dropped `weight()` and `expiresIn()` / `expiringAt()` silently. A withdrawal records
+  no decision, so `cancel()` now throws `InvalidApprovalRequestException` when either was set, and
+  withdraws nothing. `because()` and `within()` still apply, and a bare `cancel()` works as
+  before.
+- `close()` dropped `as()`, `weight()` and `expiresIn()` / `expiringAt()` silently. Closing a round
+  records no decision and involves no actor (no authorization gate runs), so `close()` now throws
+  `InvalidApprovalRequestException` when any of them was set, and leaves the round open. A bare
+  `close()`, or one pinned with `within()`, works as before. `Approvals::fake()` refuses all of
+  these the same way and records nothing. Toggling off still ignores `weight()` and the expiry,
+  as documented.
 
 ## 1.2.2 - 2026-10-10
 

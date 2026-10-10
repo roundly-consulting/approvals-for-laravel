@@ -216,13 +216,14 @@ describe('close()', function (): void {
             ->and($ask->fresh()?->reason)->toBeNull();
     });
 
-    it('still ignores the actor, as it always has', function (): void {
+    it('refuses an actor, which it has no use for (since 1.2.3)', function (): void {
         $release = ReleaseTestModel::create();
         $alice = ReviewerTestModel::create();
         $request = Approvals::request($release)->from([$alice])->open();
 
-        expect(Approvals::for($release)->as($alice)->close())->toBe(1)
-            ->and($request->fresh()?->status)->toBe(ApprovalStatus::Cancelled);
+        expect(fn () => Approvals::for($release)->as($alice)->close())
+            ->toThrow(InvalidApprovalRequestException::class, 'so [as()] cannot be set before it')
+            ->and($request->fresh()?->status)->toBe(ApprovalStatus::Pending);
     });
 });
 

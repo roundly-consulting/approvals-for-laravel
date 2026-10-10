@@ -74,6 +74,7 @@ final class PendingApproval
     /**
      * The decision's reason (approve(), reject(), ask(), toggling on) or the withdrawal's
      * (cancel(), toggling off). close() refuses one: a round has nowhere to keep it.
+     * `null` is no reason.
      */
     public function because(?string $reason): self
     {
@@ -84,8 +85,8 @@ final class PendingApproval
 
     /**
      * Override the weight this decision carries towards a quorum/weighted threshold
-     * (approve(), reject(), toggling on). ask() refuses one: a pending decision counts
-     * towards no threshold.
+     * (approve(), reject(), toggling on). ask(), cancel() and close() refuse one: they
+     * record no decision that counts towards a threshold.
      */
     public function weight(int $weight): self
     {
@@ -94,6 +95,11 @@ final class PendingApproval
         return $this;
     }
 
+    /**
+     * The decision's expiry (approve(), toggling on) or the ask's reply-by deadline
+     * (ask()). reject(), cancel() and close() refuse one: a rejection has no expiry, and
+     * the other two record no decision.
+     */
     public function expiringAt(CarbonInterface $at): self
     {
         $this->expiresAt = $at;
@@ -101,6 +107,9 @@ final class PendingApproval
         return $this;
     }
 
+    /**
+     * expiringAt() N seconds from now.
+     */
     public function expiresIn(int $seconds): self
     {
         $this->expiresAt = CarbonImmutable::now()->addSeconds($seconds);
@@ -122,10 +131,21 @@ final class PendingApproval
         );
     }
 
+    /**
+     * Reject, with because() as the reason and weight() as the weight. A rejection stands
+     * until it is withdrawn or superseded, so an expiry is refused rather than dropped.
+     *
+     * @throws InvalidApprovalRequestException when expiresIn() / expiringAt() was set
+     */
     public function reject(): Approval
     {
         $actor = $this->actor();
         $approvable = $this->approvable();
+
+        if ($this->expiresAt !== null) {
+            throw InvalidApprovalRequestException::expiryOnReject();
+        }
+
         $data = DecisionData::rejected($this->reason, $this->weight);
 
         return $this->manager->perform(
@@ -166,12 +186,20 @@ final class PendingApproval
 
     /**
      * Withdraw the actor's live decision (pending, approved or rejected), or one it made
-     * as a delegate, if there is one — within the pinned request when within() was used.
+     * as a delegate, if there is one — within the pinned request when within() was used,
+     * with because() as the withdrawal's reason. A withdrawal records no decision, so
+     * weight() and an expiry are refused rather than dropped.
+     *
+     * @throws InvalidApprovalRequestException when weight() or expiresIn() / expiringAt() was set
      */
     public function cancel(): ?Approval
     {
         $actor = $this->actor();
         $approvable = $this->approvable();
+
+        if (($refused = $this->decisionSettings()) !== []) {
+            throw InvalidApprovalRequestException::settingsOnCancel($refused);
+        }
 
         return $this->manager->perform(
             ApprovalOperation::Cancel,
@@ -214,10 +242,12 @@ final class PendingApproval
      * round past its expiry lapses as expired.
      *
      * A round has nowhere to keep a reason, so because() is refused rather than dropped.
+     * Closing records no decision and involves no actor, so as(), weight() and an expiry
+     * are refused too.
      *
      * @return int the number of rounds this call closed (0 when none was open)
      *
-     * @throws InvalidApprovalRequestException when because() was set
+     * @throws InvalidApprovalRequestException when because(), as(), weight() or expiresIn() / expiringAt() was set
      */
     public function close(ApprovalStatus $outcome = ApprovalStatus::Cancelled): int
     {
@@ -225,6 +255,16 @@ final class PendingApproval
 
         if ($this->reason !== null) {
             throw InvalidApprovalRequestException::reasonOnClose();
+        }
+
+        $refused = $this->decisionSettings();
+
+        if ($this->actor !== null) {
+            array_unshift($refused, 'as()');
+        }
+
+        if ($refused !== []) {
+            throw InvalidApprovalRequestException::settingsOnClose($refused);
         }
 
         return $this->manager->perform(
@@ -251,6 +291,27 @@ final class PendingApproval
     public function hasPending(): bool
     {
         return ApprovalChecker::hasPending($this->approvable());
+    }
+
+    /**
+     * The decision settings made on the builder, by the method that sets each: what a
+     * call that records no decision refuses.
+     *
+     * @return list<string>
+     */
+    private function decisionSettings(): array
+    {
+        $settings = [];
+
+        if ($this->weight !== null) {
+            $settings[] = 'weight()';
+        }
+
+        if ($this->expiresAt !== null) {
+            $settings[] = 'expiresIn() / expiringAt()';
+        }
+
+        return $settings;
     }
 
     /**

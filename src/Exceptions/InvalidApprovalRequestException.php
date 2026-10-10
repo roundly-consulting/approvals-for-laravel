@@ -73,6 +73,51 @@ final class InvalidApprovalRequestException extends ApprovalsException
     }
 
     /**
+     * An expiry was set before `reject()`. A rejection stands until it is withdrawn or
+     * superseded, so the expiry would have been dropped. It is refused instead.
+     */
+    public static function expiryOnReject(): self
+    {
+        return new self(
+            'reject() records a rejection, which has no expiry: it stands until it is withdrawn or superseded, '
+            .'so expiresIn() / expiringAt() cannot be set before it. Withdraw the rejection with cancel() when it should stop counting.'
+        );
+    }
+
+    /**
+     * Decision settings were made before `cancel()`. A withdrawal records no decision, so
+     * they would have been dropped. They are refused instead.
+     *
+     * @param  list<string>  $settings  the builder methods called, e.g. `weight()`
+     */
+    public static function settingsOnCancel(array $settings): self
+    {
+        return new self(
+            'cancel() withdraws a decision and records none, so ['.implode(', ', $settings).'] cannot be set before it. '
+            ."It takes because(), as the withdrawal's reason, and within()."
+        );
+    }
+
+    /**
+     * An actor or decision settings were given before `close()`. Closing a round records
+     * no decision and involves no actor, so they would have been dropped. They are
+     * refused instead.
+     *
+     * @param  list<string>  $settings  the builder methods called, e.g. `as()`, `weight()`
+     */
+    public static function settingsOnClose(array $settings): self
+    {
+        $message = 'close() closes a round from outside and records no decision, so ['.implode(', ', $settings).'] '
+            .'cannot be set before it. It takes for() and within() only.';
+
+        if (in_array('as()', $settings, true)) {
+            $message .= ' No actor is involved and no authorization gate runs: check who may close the round before you call close().';
+        }
+
+        return new self($message);
+    }
+
+    /**
      * An approver was named before it was saved, so it has no key to be matched by.
      */
     public static function unsavedApprover(Model $approver): self

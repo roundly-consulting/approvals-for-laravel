@@ -81,3 +81,39 @@ it('builds the messages for a setting ask() or close() has nowhere to keep', fun
             .'Keep why the round was closed on your own model.'
         );
 });
+
+it('builds the message for an expiry set before reject()', function (): void {
+    $e = InvalidApprovalRequestException::expiryOnReject();
+
+    expect($e)->toBeInstanceOf(ApprovalsException::class)
+        ->and($e->getMessage())->toBe(
+            'reject() records a rejection, which has no expiry: it stands until it is withdrawn or superseded, '
+            .'so expiresIn() / expiringAt() cannot be set before it. Withdraw the rejection with cancel() when it should stop counting.'
+        );
+});
+
+it('builds the message naming each setting cancel() has no place for', function (): void {
+    $e = InvalidApprovalRequestException::settingsOnCancel(['weight()', 'expiresIn() / expiringAt()']);
+
+    expect($e)->toBeInstanceOf(ApprovalsException::class)
+        ->and($e->getMessage())->toBe(
+            'cancel() withdraws a decision and records none, so [weight(), expiresIn() / expiringAt()] cannot be set before it. '
+            .'It takes because(), as the withdrawal\'s reason, and within().'
+        );
+});
+
+it('builds the message naming each setting close() has no place for', function (): void {
+    $withActor = InvalidApprovalRequestException::settingsOnClose(['as()', 'weight()']);
+    $settingsOnly = InvalidApprovalRequestException::settingsOnClose(['expiresIn() / expiringAt()']);
+
+    expect($withActor)->toBeInstanceOf(ApprovalsException::class)
+        ->and($withActor->getMessage())->toBe(
+            'close() closes a round from outside and records no decision, so [as(), weight()] cannot be set before it. '
+            .'It takes for() and within() only. No actor is involved and no authorization gate runs: '
+            .'check who may close the round before you call close().'
+        )
+        ->and($settingsOnly->getMessage())->toBe(
+            'close() closes a round from outside and records no decision, so [expiresIn() / expiringAt()] cannot be set before it. '
+            .'It takes for() and within() only.'
+        );
+});
