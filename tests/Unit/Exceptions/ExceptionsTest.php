@@ -65,3 +65,19 @@ it('builds a defined-by-workflow message naming each refused setting', function 
         ->and($rulesOnly->getMessage())->toContain('[stages(), continueOnRejection()]')
         ->and($rulesOnly->getMessage())->not->toContain('open($approvers)');
 });
+
+it('builds the messages for a setting ask() or close() has nowhere to keep', function (): void {
+    $weight = InvalidApprovalRequestException::weightOnAsk();
+    $reason = InvalidApprovalRequestException::reasonOnClose();
+
+    expect($weight)->toBeInstanceOf(ApprovalsException::class)
+        ->and($weight->getMessage())->toBe(
+            'ask() records a pending decision, which counts towards no threshold, so weight() cannot be set before it. '
+            .'Set weight() on the approve() or reject() that answers the ask.'
+        )
+        ->and($reason)->toBeInstanceOf(ApprovalsException::class)
+        ->and($reason->getMessage())->toBe(
+            'close() records no reason: an approval round has nowhere to keep one, so because() cannot be set before it. '
+            .'Keep why the round was closed on your own model.'
+        );
+});

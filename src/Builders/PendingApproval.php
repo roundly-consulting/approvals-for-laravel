@@ -18,6 +18,7 @@ use RoundlyConsulting\Approvals\DataTransferObjects\DecisionData;
 use RoundlyConsulting\Approvals\Enums\ApprovalOperation;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Exceptions\IncompletePendingApprovalException;
+use RoundlyConsulting\Approvals\Exceptions\InvalidApprovalRequestException;
 use RoundlyConsulting\Approvals\Models\Approval;
 use RoundlyConsulting\Approvals\Models\ApprovalRequest;
 use RoundlyConsulting\Approvals\Support\ApprovalChecker;
@@ -70,6 +71,10 @@ final class PendingApproval
         return $this;
     }
 
+    /**
+     * The decision's reason (approve(), reject(), ask(), toggling on) or the withdrawal's
+     * (cancel(), toggling off). close() refuses one: a round has nowhere to keep it.
+     */
     public function because(?string $reason): self
     {
         $this->reason = $reason;
@@ -78,7 +83,9 @@ final class PendingApproval
     }
 
     /**
-     * Override the weight this decision carries towards a quorum/weighted threshold.
+     * Override the weight this decision carries towards a quorum/weighted threshold
+     * (approve(), reject(), toggling on). ask() refuses one: a pending decision counts
+     * towards no threshold.
      */
     public function weight(int $weight): self
     {
@@ -130,13 +137,24 @@ final class PendingApproval
     }
 
     /**
-     * Ask the actor for a decision: record a pending approval for the pair.
+     * Ask the actor for a decision: record a pending approval for the pair, with
+     * because() as the ask's reason and expiresIn() / expiringAt() as its reply-by
+     * deadline. The answer keeps that reason unless it gives one of its own. A pending
+     * decision counts towards no threshold, so weight() is refused rather than dropped:
+     * set it on the approve() or reject() that answers the ask.
+     *
+     * @throws InvalidApprovalRequestException when weight() was set
      */
     public function ask(): Approval
     {
         $actor = $this->actor();
         $approvable = $this->approvable();
-        $data = DecisionData::pending($this->expiresAt);
+
+        if ($this->weight !== null) {
+            throw InvalidApprovalRequestException::weightOnAsk();
+        }
+
+        $data = new DecisionData(ApprovalStatus::Pending, $this->reason, $this->expiresAt);
 
         return $this->manager->perform(
             ApprovalOperation::Ask,
@@ -195,11 +213,19 @@ final class PendingApproval
      * already closed is left alone (a pinned closed round is not an error here), and a
      * round past its expiry lapses as expired.
      *
+     * A round has nowhere to keep a reason, so because() is refused rather than dropped.
+     *
      * @return int the number of rounds this call closed (0 when none was open)
+     *
+     * @throws InvalidApprovalRequestException when because() was set
      */
     public function close(ApprovalStatus $outcome = ApprovalStatus::Cancelled): int
     {
         $subject = $this->approvable();
+
+        if ($this->reason !== null) {
+            throw InvalidApprovalRequestException::reasonOnClose();
+        }
 
         return $this->manager->perform(
             ApprovalOperation::Close,

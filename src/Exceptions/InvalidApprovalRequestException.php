@@ -48,6 +48,31 @@ final class InvalidApprovalRequestException extends ApprovalsException
     }
 
     /**
+     * `weight()` was set before `ask()`. An ask records a pending decision, which counts
+     * towards no threshold, and the answer resolves its own weight, so the weight would
+     * have been dropped. It is refused instead.
+     */
+    public static function weightOnAsk(): self
+    {
+        return new self(
+            'ask() records a pending decision, which counts towards no threshold, so weight() cannot be set before it. '
+            .'Set weight() on the approve() or reject() that answers the ask.'
+        );
+    }
+
+    /**
+     * `because()` was set before `close()`. A round has no reason column, and the events
+     * closing it carry none, so the reason would have been dropped. It is refused instead.
+     */
+    public static function reasonOnClose(): self
+    {
+        return new self(
+            'close() records no reason: an approval round has nowhere to keep one, so because() cannot be set before it. '
+            .'Keep why the round was closed on your own model.'
+        );
+    }
+
+    /**
      * An approver was named before it was saved, so it has no key to be matched by.
      */
     public static function unsavedApprover(Model $approver): self

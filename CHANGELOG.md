@@ -18,6 +18,17 @@ All notable changes to `approvals-for-laravel` are documented in this file. The 
   withdrawal's reason, as `cancel()` does. A bare `toggle()` works as before.
   `ToggleApprovalAction::execute()` takes the `DecisionData` and the request to pin as optional
   third and fourth arguments.
+- `ask()` dropped `because()` silently: it now records the reason on the pending decision, next
+  to the reply-by expiry it already took. An answer without a reason of its own keeps it. A bare
+  `ask()` works as before.
+- `ask()` dropped `weight()` silently. A pending decision counts towards no threshold, and the
+  answer resolves its own weight, so `ask()` now throws `InvalidApprovalRequestException` when
+  `weight()` was set, and records nothing. Set `weight()` on the `approve()` or `reject()` that
+  answers the ask.
+- `close()` dropped `because()` silently. A round has nowhere to keep a reason, so
+  `Approvals::for($subject)->because($reason)->close()` now throws
+  `InvalidApprovalRequestException` and leaves the round open. A bare `close()`, or
+  `because(null)`, works as before.
 
 ## 1.2.1 - 2026-10-10
 
