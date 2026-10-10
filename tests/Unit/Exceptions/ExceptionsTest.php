@@ -27,6 +27,15 @@ it('builds an invalid transition exception message', function (): void {
         ->and($e->getMessage())->toContain('pending');
 });
 
+it('builds a closing-outcome exception message', function (): void {
+    $e = InvalidStatusTransitionException::notAClosingOutcome(ApprovalStatus::Approved);
+
+    expect($e)->toBeInstanceOf(ApprovalsException::class)
+        ->and($e->getMessage())->toContain('[approved]')
+        ->and($e->getMessage())->toContain('[cancelled]')
+        ->and($e->getMessage())->toContain('[expired]');
+});
+
 it('builds an unauthorized exception message', function (): void {
     $actor = ActorTestModel::create();
 

@@ -9,12 +9,14 @@ use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Approvals\Actions\ApproveAction;
 use RoundlyConsulting\Approvals\Actions\CancelApprovalAction;
+use RoundlyConsulting\Approvals\Actions\CloseApprovalRequestAction;
 use RoundlyConsulting\Approvals\Actions\RejectAction;
 use RoundlyConsulting\Approvals\Actions\RequestApprovalAction;
 use RoundlyConsulting\Approvals\Actions\ToggleApprovalAction;
 use RoundlyConsulting\Approvals\ApprovalsManager;
 use RoundlyConsulting\Approvals\DataTransferObjects\DecisionData;
 use RoundlyConsulting\Approvals\Enums\ApprovalOperation;
+use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Exceptions\IncompletePendingApprovalException;
 use RoundlyConsulting\Approvals\Models\Approval;
 use RoundlyConsulting\Approvals\Models\ApprovalRequest;
@@ -59,7 +61,7 @@ final class PendingApproval
      * Pin the decision to this request instead of the approvable's latest open one.
      * The request must belong to the approvable and still be open: a closed one
      * (approved, rejected, cancelled or expired) refuses the decision with a
-     * ClosedApprovalRequestException.
+     * ClosedApprovalRequestException. With close(), only this request is closed.
      */
     public function within(ApprovalRequest $request): self
     {
@@ -174,6 +176,28 @@ final class PendingApproval
             ToggleApprovalAction::class,
             static fn (ToggleApprovalAction $action): bool => $action->execute($actor, $approvable),
             $this->context($actor, $approvable),
+        );
+    }
+
+    /**
+     * Close the approvable's open approval round(s) from outside — only the request pinned
+     * with within() when one is — as cancelled (the default) or expired, the way the
+     * engine closes a round it resolves: its outstanding asks are retired, then
+     * ApprovalRequestResolved and ApprovalStatusChanged fire. Needs no actor. A round
+     * already closed is left alone (a pinned closed round is not an error here), and a
+     * round past its expiry lapses as expired.
+     *
+     * @return int the number of rounds this call closed (0 when none was open)
+     */
+    public function close(ApprovalStatus $outcome = ApprovalStatus::Cancelled): int
+    {
+        $subject = $this->approvable();
+
+        return $this->manager->perform(
+            ApprovalOperation::Close,
+            CloseApprovalRequestAction::class,
+            fn (CloseApprovalRequestAction $action): int => $action->execute($subject, $outcome, $this->request),
+            ['subject' => $subject, 'request' => $this->request, 'outcome' => $outcome],
         );
     }
 

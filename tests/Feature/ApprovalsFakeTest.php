@@ -2,11 +2,17 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\ExpectationFailedException;
 use RoundlyConsulting\Approvals\ApprovalsManager;
 use RoundlyConsulting\Approvals\DataTransferObjects\StageDefinition;
 use RoundlyConsulting\Approvals\Enums\ApprovalOperation;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
+use RoundlyConsulting\Approvals\Events\ApprovalCancelled;
+use RoundlyConsulting\Approvals\Events\ApprovalRequestResolved;
+use RoundlyConsulting\Approvals\Events\ApprovalStatusChanged;
+use RoundlyConsulting\Approvals\Exceptions\ClosedApprovalRequestException;
+use RoundlyConsulting\Approvals\Exceptions\InvalidStatusTransitionException;
 use RoundlyConsulting\Approvals\Facades\Approvals;
 use RoundlyConsulting\Approvals\Models\Approval;
 use RoundlyConsulting\Approvals\Testing\ApprovalsFake;
@@ -60,6 +66,50 @@ it('records calls made through the model traits, an injected manager and the tes
         ->and($fake->recorded(ApprovalOperation::Approve)[0]->result)->toBeInstanceOf(Approval::class)
         ->and($fake->recorded(ApprovalOperation::Approve)[0]->model('actor')?->is($a))->toBeTrue()
         ->and($fake->recorded(ApprovalOperation::Approve)[0]->model('reason'))->toBeNull();
+});
+
+it('closes a round exactly as the real manager does, and records it', function (): void {
+    $fake = Approvals::fake();
+
+    $release = ReleaseTestModel::create();
+    [$alice, $bob] = [ReviewerTestModel::create(), ReviewerTestModel::create()];
+
+    $request = Approvals::request($release)->from([$alice, $bob])->open();
+    $ask = Approvals::for($release)->as($alice)->ask();
+
+    Event::fake([ApprovalCancelled::class, ApprovalRequestResolved::class, ApprovalStatusChanged::class]);
+
+    expect(Approvals::for($release)->within($request)->close(ApprovalStatus::Expired))->toBe(1)
+        ->and(app(ApprovalsManager::class)->for($release)->close())->toBe(0)
+        ->and($request->fresh()?->status)->toBe(ApprovalStatus::Expired)
+        ->and($ask->fresh()?->status)->toBe(ApprovalStatus::Cancelled)
+        ->and($ask->fresh()?->live)->toBeNull()
+        ->and(Approvals::for($release)->hasPending())->toBeFalse()
+        ->and(fn () => $alice->approve($release))->toThrow(ClosedApprovalRequestException::class);
+
+    Event::assertDispatchedTimes(ApprovalCancelled::class, 1);
+    Event::assertDispatchedTimes(ApprovalRequestResolved::class, 1);
+    Event::assertDispatchedTimes(ApprovalStatusChanged::class, 2);
+
+    $closes = $fake->recorded(ApprovalOperation::Close);
+
+    expect($closes)->toHaveCount(2)
+        ->and($closes[0]->model('subject')?->is($release))->toBeTrue()
+        ->and($closes[0]->model('request')?->is($request))->toBeTrue()
+        ->and($closes[0]->context['outcome'])->toBe(ApprovalStatus::Expired)
+        ->and($closes[0]->result)->toBe(1)
+        ->and($closes[1]->model('request'))->toBeNull()
+        ->and($closes[1]->context['outcome'])->toBe(ApprovalStatus::Cancelled)
+        ->and($closes[1]->result)->toBe(0);
+});
+
+it('does not record a close it refused', function (): void {
+    $fake = Approvals::fake();
+
+    expect(fn () => Approvals::for(ReleaseTestModel::create())->close(ApprovalStatus::Approved))
+        ->toThrow(InvalidStatusTransitionException::class);
+
+    $fake->assertNothingClosed();
 });
 
 it('does not record an operation that failed', function (): void {
@@ -182,6 +232,25 @@ describe('assertions', function (): void {
         $this->fake->assertRevoked($this->reviewer, $this->stranger);
         expect(fn () => $this->fake->assertRevoked($this->stranger))->toThrow(ExpectationFailedException::class)
             ->and(fn () => $this->fake->assertNothingRevoked())->toThrow(ExpectationFailedException::class);
+    });
+
+    it('assertClosed / assertNothingClosed', function (): void {
+        Approvals::request($this->release)->from([$this->reviewer])->open();
+
+        $this->fake->assertNothingClosed();
+        expect(fn () => $this->fake->assertClosed($this->release))
+            ->toThrow(ExpectationFailedException::class, 'Expected an approval round of the subject to be closed');
+
+        Approvals::for($this->release)->close();
+
+        $this->fake->assertClosed($this->release);
+        $this->fake->assertClosed($this->release, ApprovalStatus::Cancelled);
+        expect(fn () => $this->fake->assertClosed($this->release, ApprovalStatus::Expired))
+            ->toThrow(ExpectationFailedException::class, 'closed as [expired]')
+            ->and(fn () => $this->fake->assertClosed($this->other))->toThrow(ExpectationFailedException::class)
+            ->and(fn () => $this->fake->assertNothingClosed())->toThrow(ExpectationFailedException::class, '1 close(s)');
+
+        Approvals::assertClosed($this->release, ApprovalStatus::Cancelled);
     });
 
     it('assertExpired / assertNothingExpired', function (): void {

@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use PHPUnit\Framework\Assert;
 use RoundlyConsulting\Approvals\ApprovalsManager;
 use RoundlyConsulting\Approvals\Enums\ApprovalOperation;
+use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Support\MorphType;
 
 /**
@@ -194,6 +195,31 @@ final class ApprovalsFake extends ApprovalsManager
         $lapsed = $this->lapsed($this->sweeps());
 
         Assert::assertSame(0, $lapsed, "Expected nothing to be expired, but {$lapsed} decision(s) were.");
+    }
+
+    /**
+     * Assert a close of the subject's approval round was requested (`->close()`),
+     * optionally with the given outcome.
+     */
+    public function assertClosed(Model $subject, ?ApprovalStatus $outcome = null): void
+    {
+        $matches = array_filter(
+            $this->recorded(ApprovalOperation::Close),
+            static fn (RecordedApprovalOperation $recorded): bool => $recorded->involves('subject', $subject)
+                && ($outcome === null || ($recorded->context['outcome'] ?? null) === $outcome),
+        );
+
+        Assert::assertNotEmpty(
+            $matches,
+            $outcome === null
+                ? 'Expected an approval round of the subject to be closed, but none was.'
+                : "Expected an approval round of the subject to be closed as [{$outcome->value}], but none was.",
+        );
+    }
+
+    public function assertNothingClosed(): void
+    {
+        $this->assertNone(ApprovalOperation::Close, 'Expected no approval round to be closed, but %d close(s) were recorded.');
     }
 
     private function assertDecision(ApprovalOperation $operation, string $verb, Model $approvable, ?Model $actor): void

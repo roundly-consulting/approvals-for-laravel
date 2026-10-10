@@ -44,4 +44,7 @@ enum ApprovalOperation: string
 
     /** Expired pending decisions were lapsed. */
     case Expire = 'expire';
+
+    /** A subject's open request was closed from outside, as cancelled or expired. */
+    case Close = 'close';
 }

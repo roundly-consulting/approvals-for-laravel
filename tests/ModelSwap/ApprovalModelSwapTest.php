@@ -2,8 +2,13 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\Event;
 use RoundlyConsulting\Approvals\DataTransferObjects\StageDefinition;
 use RoundlyConsulting\Approvals\Enums\ApprovalRule;
+use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
+use RoundlyConsulting\Approvals\Events\ApprovalCancelled;
+use RoundlyConsulting\Approvals\Events\ApprovalRequestResolved;
+use RoundlyConsulting\Approvals\Facades\Approvals;
 use RoundlyConsulting\Approvals\Tests\ActorTestModel;
 use RoundlyConsulting\Approvals\Tests\DeploymentTestModel;
 use RoundlyConsulting\Approvals\Tests\Fixtures\CustomApproval;
@@ -114,6 +119,34 @@ it('answers approval checks through the swapped models', function (): void {
         ->and($deployment->approvals()->first())->toBeInstanceOf(CustomApproval::class)
         ->and($actor->approvalFor($deployment))->toBeInstanceOf(CustomApproval::class)
         ->and($deployment->approvalCount())->toBe(1);
+});
+
+/**
+ * Closing a round from outside loads the subject's rounds through the request seam and
+ * retires its asks through the approval seam, so the resolution event carries the
+ * host's request model and the retired ask is the host's approval model.
+ */
+it('closes a round through the swapped models', function (): void {
+    $release = ReleaseTestModel::query()->create();
+    $lead = ActorTestModel::query()->create();
+
+    $release->requestApproval([$lead]);
+    Approvals::for($release)->as($lead)->ask();
+
+    $resolved = null;
+    $cancelled = null;
+    Event::listen(ApprovalRequestResolved::class, function (ApprovalRequestResolved $event) use (&$resolved): void {
+        $resolved = $event->request;
+    });
+    Event::listen(ApprovalCancelled::class, function (ApprovalCancelled $event) use (&$cancelled): void {
+        $cancelled = $event->approval;
+    });
+
+    expect(Approvals::for($release)->close())->toBe(1)
+        ->and($resolved)->toBeInstanceOf(CustomApprovalRequest::class)
+        ->and($resolved?->status)->toBe(ApprovalStatus::Cancelled)
+        ->and($cancelled)->toBeInstanceOf(CustomApproval::class)
+        ->and($cancelled?->status)->toBe(ApprovalStatus::Cancelled);
 });
 
 // The structural half of each seam — the four models are non-final, and each

@@ -51,6 +51,8 @@ use RoundlyConsulting\Approvals\Testing\RecordedApprovalOperation;
  * @method static void assertNothingRevoked()
  * @method static void assertExpired(?int $count = null, ?string $subjectType = null)
  * @method static void assertNothingExpired()
+ * @method static void assertClosed(Model $subject, ?ApprovalStatus $outcome = null)
+ * @method static void assertNothingClosed()
  *
  * @see ApprovalsManager
  * @see ApprovalsFake

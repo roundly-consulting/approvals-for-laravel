@@ -25,6 +25,7 @@ use RoundlyConsulting\Approvals\Events\ApprovalRequestResolved;
 use RoundlyConsulting\Approvals\Events\ApprovalStageCleared;
 use RoundlyConsulting\Approvals\Events\ApprovalStageOpened;
 use RoundlyConsulting\Approvals\Events\ApprovalStatusChanged;
+use RoundlyConsulting\Approvals\Exceptions\InvalidStatusTransitionException;
 use RoundlyConsulting\Approvals\Support\ApprovalModelResolver;
 use RoundlyConsulting\Approvals\Support\ApprovalRequestStageModelResolver;
 use RoundlyConsulting\Approvals\Support\RuleEvaluator;
@@ -195,6 +196,32 @@ class ApprovalRequest extends Model
         return $this->finalize(ApprovalStatus::Expired);
     }
 
+    /**
+     * Close the round from outside, as cancelled or expired — the way the engine closes
+     * one it resolves: the conditional status write, its outstanding asks retired, then
+     * ApprovalRequestResolved and ApprovalStatusChanged. A round already closed (or one
+     * a concurrent decision resolved first) is left as it is, and nothing fires. A round
+     * past its expiry already reads as expired, so it lapses as expired, whatever
+     * outcome is given.
+     *
+     * Hosts close a round through `Approvals::for($subject)->close()`, so the fake
+     * records it; this is the engine step the close action runs.
+     *
+     * @internal
+     *
+     * @return bool whether this call closed it
+     *
+     * @throws InvalidStatusTransitionException when the outcome is not cancelled or expired
+     */
+    public function close(ApprovalStatus $outcome): bool
+    {
+        if ($outcome !== ApprovalStatus::Cancelled && $outcome !== ApprovalStatus::Expired) {
+            throw InvalidStatusTransitionException::notAClosingOutcome($outcome);
+        }
+
+        return $this->finalize($this->isOverdue() ? ApprovalStatus::Expired : $outcome);
+    }
+
     private function resolveFlat(): static
     {
         $outcome = app(RuleEvaluator::class)->evaluate($this->rule, $this->flatTally());
@@ -344,9 +371,10 @@ class ApprovalRequest extends Model
 
     /**
      * Move the request from pending to its outcome and announce it — only if it is still
-     * pending. Two decisions resolving at once each hold their own copy of the request;
-     * the conditional update lets exactly one of them finalize it, so it resolves (and
-     * fires its events) once.
+     * pending. Two writers closing it at once (two decisions resolving it, or a decision
+     * and a host's close()) each hold their own copy of the request; the conditional
+     * update lets exactly one of them finalize it, so it resolves (and fires its events)
+     * once.
      */
     private function finalize(ApprovalStatus $outcome): bool
     {

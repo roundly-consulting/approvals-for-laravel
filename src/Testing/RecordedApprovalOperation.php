@@ -12,8 +12,8 @@ use RoundlyConsulting\Approvals\Enums\ApprovalOperation;
  * what it returned.
  *
  * Context keys: `actor`, `approvable`, `request`, `reason` (decisions); `subject`,
- * `staged`, `workflow` (open); `delegator`, `delegate`, `starts_at`, `ends_at`
- * (delegate / revoke); `now` (expire).
+ * `staged`, `workflow` (open); `subject`, `request`, `outcome` (close); `delegator`,
+ * `delegate`, `starts_at`, `ends_at` (delegate / revoke); `now`, `subjectType` (expire).
  */
 final readonly class RecordedApprovalOperation
 {

@@ -6,6 +6,22 @@ All notable changes to `approvals-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+### Added
+
+- `Approvals::for($subject)->close()` closes a subject's open approval round from outside, for a
+  host that cancels or expires the subject itself. It closes as cancelled by default, or pass
+  `ApprovalStatus::Expired`; `->within($request)` closes only that round. The round closes the way
+  the engine closes one it resolves: its outstanding asks are cancelled (`ApprovalCancelled` and
+  `ApprovalStatusChanged` pending → cancelled for each), then `ApprovalRequestResolved` and
+  `ApprovalStatusChanged` fire for the round. A round that is already closed, or that a decision
+  resolved first, is left alone and nothing fires. A round past its expiry closes as expired. It
+  returns the number of rounds it closed, and any other outcome throws
+  `InvalidStatusTransitionException`. The same operation is available as
+  `CloseApprovalRequestAction`.
+- `Approvals::fake()` records closes as `ApprovalOperation::Close`, with `assertClosed($subject,
+  ?$outcome)` and `assertNothingClosed()`. If you `match` over `ApprovalOperation` without a
+  default arm, add the new case.
+
 ## 1.0.1 - 2026-10-05
 
 ### Changed
