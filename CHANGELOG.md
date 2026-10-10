@@ -6,6 +6,15 @@ All notable changes to `approvals-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+## 1.2.3 - 2026-10-10
+
+**Upgrade note:** more settings that used to be dropped silently are now refused. `reject()`
+after `expiresIn()` / `expiringAt()`, `cancel()` after `weight()` or an expiry, and `close()`
+after `as()`, `weight()` or an expiry throw `InvalidApprovalRequestException` and record nothing,
+so code that used to run silently gets an exception. The setting was never applied, so drop it.
+An answer to an ask without a reason of its own no longer inherits the ask's reason: pass
+`because()` to the `approve()` or `reject()` if you want one.
+
 ### Fixed
 
 - An answer to an ask no longer takes the asker's reason. `approve()` or `reject()` without a
