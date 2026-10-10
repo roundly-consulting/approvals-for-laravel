@@ -6,6 +6,17 @@ All notable changes to `approvals-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+### Fixed
+
+- `php artisan migrate` now runs on MySQL 8 with utf8mb4. The `0001_create_approvals_table`
+  migration failed there with SQLSTATE 1071, because its `approvals_actor_approvable_status_index`
+  came to 3076 bytes, over MySQL's 3072-byte index limit. The index now covers `actor_id`,
+  `actor_type`, `approvable_id` and `approvable_type` (`status` keeps its own index). `0001` is
+  fixed in place, since no utf8mb4 MySQL install could have run it. An install that already ran it
+  (PostgreSQL, or MySQL on utf8mb3) keeps its index and needs nothing. On MySQL, republish the
+  migrations with `--force`, drop the empty `approvals` table the failed run left behind, and
+  migrate.
+
 ## 1.1.0 - 2026-10-10
 
 ### Added

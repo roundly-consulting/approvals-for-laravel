@@ -36,8 +36,12 @@ return new class extends Migration
             $table->timestamps();
             $table->softDeletes();
 
+            // `status` is not part of this key: with it the index came to 3076 bytes under
+            // utf8mb4, over MySQL's 3072-byte limit, so this migration could not run there.
+            // `status` has its own index, and an actor holds only a handful of rows per
+            // approvable. The name stays so fresh and upgraded installs share one index name.
             $table->index(
-                ['actor_id', 'actor_type', 'approvable_id', 'approvable_type', 'status'],
+                ['actor_id', 'actor_type', 'approvable_id', 'approvable_type'],
                 'approvals_actor_approvable_status_index',
             );
 

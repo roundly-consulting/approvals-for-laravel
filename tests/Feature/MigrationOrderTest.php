@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use RoundlyConsulting\Approvals\ApprovalsServiceProvider;
 use RoundlyConsulting\Approvals\Enums\ApprovalRule;
 use RoundlyConsulting\Approvals\Tests\ActorTestModel;
@@ -71,6 +72,25 @@ it('publishes every migration timestamp-injected into the host', function (): vo
 it('applies its migrations on postgres', function () use ($migrations): void {
     expect($migrations)->toApplyOnConnection('pgsql', migrations: 7);
 })->skip(fn (): bool => ! test()->connectionAvailable('pgsql'), 'no postgres connection available');
+
+/**
+ * MySQL caps an InnoDB index at 3072 bytes and counts four bytes per utf8mb4 character, a
+ * limit sqlite and postgres do not have. Until 1.1.1 the actor/approvable index also
+ * covered `status` and came to 3076 bytes, so a fresh `migrate` on MySQL 8 died with
+ * SQLSTATE 1071 on the first migration.
+ */
+it('applies its migrations on mysql', function () use ($migrations): void {
+    expect($migrations)->toApplyOnConnection('mysql', migrations: 7);
+})->skip(fn (): bool => ! test()->connectionAvailable('mysql'), 'no mysql connection available');
+
+it('keeps the actor/approvable index to the four morph columns', function (): void {
+    $index = collect(Schema::getIndexes('approvals'))
+        ->firstWhere('name', 'approvals_actor_approvable_status_index');
+
+    // `status` stays out: it has its own index, and with it the key no longer fits
+    // MySQL's 3072-byte limit under utf8mb4.
+    expect($index['columns'] ?? null)->toBe(['actor_id', 'actor_type', 'approvable_id', 'approvable_type']);
+});
 
 /**
  * The driver-truth pin. It compares the driver the leg *declares* (TESTING_DB_DRIVER)
