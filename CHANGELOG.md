@@ -6,6 +6,8 @@ All notable changes to `approvals-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+## 1.2.0 - 2026-10-10
+
 ### Added
 
 - A round opened from a workflow preset can take its own deadline:
