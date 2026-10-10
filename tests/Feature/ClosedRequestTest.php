@@ -182,6 +182,8 @@ describe('a decision pinned to a closed request', function (): void {
             ->toThrow(ClosedApprovalRequestException::class)
             ->and(fn () => Approvals::for($release)->as($lead)->within($request)->ask())
             ->toThrow(ClosedApprovalRequestException::class)
+            ->and(fn () => Approvals::for($release)->as($lead)->within($request)->toggle())
+            ->toThrow(ClosedApprovalRequestException::class, "is closed ({$status->value})")
             ->and($request->decisions()->withTrashed()->count())->toBe(0);
     })->with([ApprovalStatus::Approved, ApprovalStatus::Rejected, ApprovalStatus::Cancelled, ApprovalStatus::Expired]);
 
@@ -195,6 +197,36 @@ describe('a decision pinned to a closed request', function (): void {
         expect(fn () => Approvals::for($release)->as($lead)->within($closed)->approve())
             ->toThrow(ClosedApprovalRequestException::class)
             ->and($closed->decisions()->count())->toBe(0);
+    });
+
+    // toggle() used to ignore within() and approve the open later round instead.
+    it('refuses a toggle on even when the subject has another round open', function (): void {
+        $release = ReleaseTestModel::create();
+        $lead = ReviewerTestModel::create();
+
+        $closed = closeRound($release->requestApproval([$lead]), ApprovalStatus::Rejected);
+        $open = $release->requestApproval([$lead]);
+
+        expect(fn () => Approvals::for($release)->as($lead)->within($closed)->toggle())
+            ->toThrow(ClosedApprovalRequestException::class, 'is closed (rejected)')
+            ->and(Approval::query()->withTrashed()->count())->toBe(0)
+            ->and($open->fresh()?->status)->toBe(ApprovalStatus::Pending);
+    });
+
+    // …and withdraw the approval held in the open later round.
+    it('refuses a toggle off even when the subject has another round open', function (): void {
+        $release = ReleaseTestModel::create();
+        [$lead, $qa] = [ReviewerTestModel::create(), ReviewerTestModel::create()];
+
+        $closed = closeRound($release->requestApproval([$lead]), ApprovalStatus::Cancelled);
+        $open = $release->requestApproval([$lead, $qa], ApprovalRule::Unanimous);
+        $held = $lead->approve($release);
+
+        expect(fn () => Approvals::for($release)->as($lead)->within($closed)->toggle())
+            ->toThrow(ClosedApprovalRequestException::class, 'is closed (cancelled)')
+            ->and($held->fresh()?->status)->toBe(ApprovalStatus::Approved)
+            ->and($held->fresh()?->approval_request_id)->toBe($open->getKey())
+            ->and($lead->hasApproved($release))->toBeTrue();
     });
 });
 

@@ -164,17 +164,25 @@ final class PendingApproval
     }
 
     /**
+     * Approve when the actor holds no live approval, withdraw it when it does — within
+     * the pinned request when within() was used, which must belong to the approvable and
+     * still be open, as for approve(). Toggling on takes because(), weight() and
+     * expiresIn() / expiringAt() the way approve() does; toggling off records no
+     * decision, so it takes only because(), as the withdrawal's reason, the way cancel()
+     * does.
+     *
      * @return bool true when the approval was created, false when it was removed
      */
     public function toggle(): bool
     {
         $actor = $this->actor();
         $approvable = $this->approvable();
+        $data = DecisionData::approved($this->reason, $this->expiresAt, $this->weight);
 
         return $this->manager->perform(
             ApprovalOperation::Toggle,
             ToggleApprovalAction::class,
-            static fn (ToggleApprovalAction $action): bool => $action->execute($actor, $approvable),
+            fn (ToggleApprovalAction $action): bool => $action->execute($actor, $approvable, $data, $this->request),
             $this->context($actor, $approvable),
         );
     }

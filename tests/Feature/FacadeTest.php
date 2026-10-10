@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Carbon\CarbonImmutable;
 use RoundlyConsulting\Approvals\Actions\ApproveAction;
 use RoundlyConsulting\Approvals\Actions\RequestApprovalAction;
+use RoundlyConsulting\Approvals\Actions\ToggleApprovalAction;
 use RoundlyConsulting\Approvals\ApprovalsManager;
 use RoundlyConsulting\Approvals\Builders\DelegationsHandle;
 use RoundlyConsulting\Approvals\Builders\PendingApproval;
@@ -143,6 +144,23 @@ describe('decisions', function (): void {
 
         expect($approval->approval_request_id)->toBe($request->getKey());
     });
+
+    it('pins a toggle to an explicit open request, on and off', function (): void {
+        $release = ReleaseTestModel::create();
+        [$reviewer, $qa] = [ReviewerTestModel::create(), ReviewerTestModel::create()];
+
+        $older = Approvals::request($release)->from([$reviewer, $qa])->open();
+        $newer = Approvals::request($release)->from([$reviewer, $qa])->open();
+        $inNewer = Approvals::for($release)->as($reviewer)->within($newer)->approve();
+
+        expect(Approvals::for($release)->as($reviewer)->within($older)->toggle())->toBeTrue()
+            ->and($older->decisions()->approved()->count())->toBe(1)
+            ->and(Approvals::for($release)->as($reviewer)->within($older)->toggle())->toBeFalse()
+            ->and($older->decisions()->approved()->count())->toBe(0)
+            ->and($older->decisions()->onlyTrashed()->count())->toBe(1)
+            ->and($inNewer->fresh()?->status)->toBe(ApprovalStatus::Approved)
+            ->and($newer->decisions()->count())->toBe(1);
+    });
 });
 
 describe('cross-scope refusal', function (): void {
@@ -157,7 +175,7 @@ describe('cross-scope refusal', function (): void {
 
         expect(Approval::query()->count())->toBe(0)
             ->and($foreign->fresh()?->status)->toBe(ApprovalStatus::Pending);
-    })->with(['approve', 'reject', 'ask']);
+    })->with(['approve', 'reject', 'ask', 'toggle']);
 
     it('refuses a request of the same key but another morph type', function (): void {
         $release = ReleaseTestModel::create();
@@ -178,7 +196,10 @@ describe('cross-scope refusal', function (): void {
         expect(fn () => app(ApproveAction::class)->execute($reviewer, $release, null, $foreign))
             ->toThrow(InvalidApprovalRequestException::class)
             ->and(fn () => app(RequestApprovalAction::class)->execute($reviewer, $release, null, $foreign))
-            ->toThrow(InvalidApprovalRequestException::class);
+            ->toThrow(InvalidApprovalRequestException::class)
+            ->and(fn () => app(ToggleApprovalAction::class)->execute($reviewer, $release, null, $foreign))
+            ->toThrow(InvalidApprovalRequestException::class)
+            ->and(Approval::query()->withTrashed()->count())->toBe(0);
     });
 
     it('scopes revocation to the delegator', function (): void {

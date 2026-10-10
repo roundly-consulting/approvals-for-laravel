@@ -6,6 +6,19 @@ All notable changes to `approvals-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+### Fixed
+
+- `toggle()` now honours `within()`. Pinned to a closed round,
+  `Approvals::for($subject)->as($user)->within($round)->toggle()` used to approve the subject's
+  open later round, or withdraw the approval held there, instead of throwing. It now throws
+  `ClosedApprovalRequestException`, as `approve()` does. A pinned open round is the one toggled,
+  and a round of another subject throws `InvalidApprovalRequestException`. `toggle()` also
+  dropped `because()`, `weight()` and `expiresIn()` / `expiringAt()` silently: toggling on now
+  records them on the approval, as `approve()` does, and toggling off records `because()` as the
+  withdrawal's reason, as `cancel()` does. A bare `toggle()` works as before.
+  `ToggleApprovalAction::execute()` takes the `DecisionData` and the request to pin as optional
+  third and fourth arguments.
+
 ## 1.2.1 - 2026-10-10
 
 **Security:** upgrade if you open approval rounds from a workflow preset. A round opened with
