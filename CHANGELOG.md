@@ -6,6 +6,8 @@ All notable changes to `approvals-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+## 1.1.0 - 2026-10-10
+
 ### Added
 
 - `Approvals::for($subject)->close()` closes a subject's open approval round from outside, for a
