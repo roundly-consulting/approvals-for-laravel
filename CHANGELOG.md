@@ -29,6 +29,9 @@ All notable changes to `approvals-for-laravel` are documented in this file. The 
   `Approvals::for($subject)->because($reason)->close()` now throws
   `InvalidApprovalRequestException` and leaves the round open. A bare `close()`, or
   `because(null)`, works as before.
+- `Approvals::fake()` records each decision's `weight()` and expiry as well: a decision's
+  `RecordedApprovalOperation::$context` gains `weight` and `expires_at` (`null` when not set),
+  next to `reason`.
 
 ## 1.2.1 - 2026-10-10
 

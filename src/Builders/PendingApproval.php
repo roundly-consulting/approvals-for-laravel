@@ -263,6 +263,8 @@ final class PendingApproval
             'approvable' => $approvable,
             'request' => $this->request,
             'reason' => $this->reason,
+            'weight' => $this->weight,
+            'expires_at' => $this->expiresAt,
         ];
     }
 

@@ -227,6 +227,47 @@ describe('close()', function (): void {
 });
 
 describe('under the fake', function (): void {
+    it('records the weight and the expiry of each decision', function (): void {
+        CarbonImmutable::setTestNow('2026-10-10 12:00:00');
+
+        $fake = Approvals::fake();
+
+        $release = ReleaseTestModel::create();
+        [$lead, $qa, $ops] = [ReviewerTestModel::create(), ReviewerTestModel::create(), ReviewerTestModel::create()];
+
+        Approvals::for($release)->as($lead)->because('Ship it')->weight(3)->expiresIn(3600)->approve();
+        Approvals::for($release)->as($qa)->weight(2)->reject();
+        Approvals::for($release)->as($ops)->expiringAt(CarbonImmutable::parse('2026-10-17 12:00:00'))->ask();
+
+        $approve = $fake->recorded(ApprovalOperation::Approve)[0]->context;
+        $reject = $fake->recorded(ApprovalOperation::Reject)[0]->context;
+        $ask = $fake->recorded(ApprovalOperation::Ask)[0]->context;
+
+        expect($approve['reason'])->toBe('Ship it')
+            ->and($approve['weight'])->toBe(3)
+            ->and($approve['expires_at']?->toDateTimeString())->toBe('2026-10-10 13:00:00')
+            ->and($reject['weight'])->toBe(2)
+            ->and($reject['expires_at'])->toBeNull()
+            ->and($ask['weight'])->toBeNull()
+            ->and($ask['expires_at']?->toDateTimeString())->toBe('2026-10-17 12:00:00');
+    });
+
+    it('records no weight and no expiry for a bare decision', function (): void {
+        $fake = Approvals::fake();
+
+        $deployment = DeploymentTestModel::create();
+        $reviewer = ReviewerTestModel::create();
+
+        Approvals::for($deployment)->as($reviewer)->toggle();
+        Approvals::for($deployment)->as($reviewer)->toggle();
+
+        foreach ($fake->recorded(ApprovalOperation::Toggle) as $recorded) {
+            expect($recorded->context)->toHaveKeys(['actor', 'approvable', 'request', 'reason', 'weight', 'expires_at'])
+                ->and($recorded->context['weight'])->toBeNull()
+                ->and($recorded->context['expires_at'])->toBeNull();
+        }
+    });
+
     it('records the ask\'s reason, and the ask carries it', function (): void {
         $fake = Approvals::fake();
 
