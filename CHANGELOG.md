@@ -6,6 +6,17 @@ All notable changes to `approvals-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+### Fixed
+
+- Named approvers can no longer be lost on the way into a workflow preset.
+  `Approvals::request($subject)->from([$cfo])->workflow('payout')->open()` used to drop `from()`
+  silently and open the round with no named approvers; under a preset rule that needs no names,
+  any approver could then decide it. `workflow()` dropped the rule (`rule()`, `any()`,
+  `quorum()`, `weighted()`), `stages()` and `continueOnRejection()` the same way. It now throws
+  `InvalidApprovalRequestException` naming each of those settings made before it, because the
+  preset defines them; pass the approvers to `open($approvers)` instead. A bare `workflow()`, or
+  one after `expiresIn()` / `expiringAt()`, works as before.
+
 ## 1.2.0 - 2026-10-10
 
 ### Added

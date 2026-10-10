@@ -30,6 +30,24 @@ final class InvalidApprovalRequestException extends ApprovalsException
     }
 
     /**
+     * Settings a workflow preset defines were made on the request builder before
+     * `workflow()`. The preset would have dropped them, so they are refused instead.
+     *
+     * @param  list<string>  $settings  the builder methods called, e.g. `from()`, `quorum()`
+     */
+    public static function definedByWorkflow(string $workflow, array $settings): self
+    {
+        $message = "The approval workflow preset [{$workflow}] defines the rule, quorum, stages and stage rejection itself "
+            .'and takes its approvers in open(), so ['.implode(', ', $settings).'] cannot be set before workflow().';
+
+        if (in_array('from()', $settings, true)) {
+            $message .= ' Pass the approvers to open($approvers) instead of from().';
+        }
+
+        return new self($message);
+    }
+
+    /**
      * An approver was named before it was saved, so it has no key to be matched by.
      */
     public static function unsavedApprover(Model $approver): self

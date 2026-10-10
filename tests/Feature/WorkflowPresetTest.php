@@ -5,9 +5,13 @@ declare(strict_types=1);
 use Carbon\CarbonImmutable;
 use RoundlyConsulting\Approvals\Actions\OpenWorkflowRequestAction;
 use RoundlyConsulting\Approvals\ApprovalsManager;
+use RoundlyConsulting\Approvals\Builders\PendingApprovalRequest;
+use RoundlyConsulting\Approvals\DataTransferObjects\StageDefinition;
 use RoundlyConsulting\Approvals\Enums\ApprovalOperation;
 use RoundlyConsulting\Approvals\Enums\ApprovalRule;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
+use RoundlyConsulting\Approvals\Exceptions\InvalidApprovalRequestException;
+use RoundlyConsulting\Approvals\Exceptions\UnauthorizedApprovalException;
 use RoundlyConsulting\Approvals\Exceptions\UnknownWorkflowException;
 use RoundlyConsulting\Approvals\Facades\Approvals;
 use RoundlyConsulting\Approvals\Models\ApprovalRequest;
@@ -238,4 +242,118 @@ describe('a caller expiry on a preset round', function (): void {
         expect($explicit->expires_at?->toDateTimeString())->toBe($deadline)
             ->and($preset->expires_at?->toDateTimeString())->toBe('2026-10-11 12:00:00');
     });
+});
+
+/*
+ * A preset defines the round's rule, quorum, stages and stage-rejection handling, and takes
+ * its approvers in open(). workflow() used to drop every such setting made on the request
+ * builder before it, so `->from([$cfo])->workflow('anyone')->open()` opened a round with no
+ * named approvers that anyone could decide. It now refuses them; only the expiry carries over.
+ */
+describe('request-builder settings a preset defines', function (): void {
+    $apply = static fn (PendingApprovalRequest $builder, string $setting): PendingApprovalRequest => match ($setting) {
+        'from()' => $builder->from([ReviewerTestModel::create()]),
+        'rule()' => $builder->rule(ApprovalRule::Quorum, 1),
+        'any()' => $builder->any(),
+        'quorum()' => $builder->quorum(1),
+        'weighted()' => $builder->weighted(1),
+        'stages()' => $builder->stages([new StageDefinition([ReviewerTestModel::create()], ApprovalRule::Any)]),
+        'continueOnRejection()' => $builder->continueOnRejection(),
+    };
+
+    $refused = ['from()', 'rule()', 'any()', 'quorum()', 'weighted()', 'stages()', 'continueOnRejection()'];
+
+    it('refuses :dataset before workflow() instead of dropping it', function (string $setting) use ($apply): void {
+        $builder = $apply(Approvals::request(ReleaseTestModel::create()), $setting);
+
+        expect(fn () => $builder->workflow('payout'))->toThrow(
+            function (InvalidApprovalRequestException $e) use ($setting): void {
+                expect($e->getMessage())
+                    ->toContain('[payout]')
+                    ->toContain("[{$setting}]")
+                    ->toContain('defines');
+            },
+        );
+
+        expect(ApprovalRequest::query()->count())->toBe(0);
+    })->with($refused);
+
+    it('refuses :dataset even when it repeats the default', function (string $setting): void {
+        $builder = Approvals::request(ReleaseTestModel::create());
+
+        match ($setting) {
+            'from([])' => $builder->from([]),
+            'rule(unanimous)' => $builder->rule(ApprovalRule::Unanimous),
+            'stages([])' => $builder->stages([]),
+            'continueOnRejection(false)' => $builder->continueOnRejection(false),
+        };
+
+        expect(fn () => $builder->workflow('payout'))->toThrow(InvalidApprovalRequestException::class);
+    })->with(['from([])', 'rule(unanimous)', 'stages([])', 'continueOnRejection(false)']);
+
+    it('names every refused setting once, in call order', function () use ($apply): void {
+        $builder = Approvals::request(ReleaseTestModel::create())->quorum(1);
+        $apply($builder, 'from()')->expiresIn(60)->quorum(2)->continueOnRejection();
+
+        expect(fn () => $builder->workflow('payout'))
+            ->toThrow(InvalidApprovalRequestException::class, '[quorum(), from(), continueOnRejection()]');
+    });
+
+    it('points named approvers at open()', function () use ($apply): void {
+        $from = $apply(Approvals::request(ReleaseTestModel::create()), 'from()');
+        $rule = $apply(Approvals::request(ReleaseTestModel::create()), 'any()');
+
+        expect(fn () => $from->workflow('payout'))->toThrow(InvalidApprovalRequestException::class, 'open($approvers)')
+            ->and(fn () => $rule->workflow('payout'))->toThrow(
+                function (InvalidApprovalRequestException $e): void {
+                    expect($e->getMessage())->not->toContain('open($approvers)');
+                },
+            );
+    });
+
+    it('never opens a round an outsider can decide', function (): void {
+        config()->set('approvals.workflows.anyone', ['rule' => ApprovalRule::Any->value]);
+        $payout = ReleaseTestModel::create();
+        [$cfo, $outsider] = [ReviewerTestModel::create(), ReviewerTestModel::create()];
+
+        expect(fn () => Approvals::request($payout)->from([$cfo])->workflow('anyone'))
+            ->toThrow(InvalidApprovalRequestException::class);
+        expect(ApprovalRequest::query()->count())->toBe(0);
+
+        // The supported form names the approvers in open(), so only the CFO may decide.
+        Approvals::request($payout)->workflow('anyone')->open([$cfo]);
+
+        expect(fn () => $outsider->approve($payout))->toThrow(UnauthorizedApprovalException::class);
+
+        $cfo->approve($payout);
+
+        expect($payout->currentApprovalStatus())->toBe(ApprovalStatus::Approved);
+    });
+
+    it('still opens from a bare workflow() and after an expiry only', function (): void {
+        $approvers = fn (): array => [ReviewerTestModel::create(), ReviewerTestModel::create(), ReviewerTestModel::create()];
+
+        $bare = Approvals::request(ReleaseTestModel::create())->workflow('payout')->open($approvers());
+        $in = Approvals::request(ReleaseTestModel::create())->expiresIn(60)->workflow('payout')->open($approvers());
+        $at = Approvals::request(ReleaseTestModel::create())->expiringAt(CarbonImmutable::now()->addHour())->workflow('payout')->open($approvers());
+
+        expect([$bare->workflow, $in->workflow, $at->workflow])->toBe(['payout', 'payout', 'payout'])
+            ->and($bare->namedApprovers())->toHaveCount(3)
+            ->and(ApprovalRequest::query()->count())->toBe(3);
+    });
+
+    it('refuses through an injected manager too', function () use ($apply): void {
+        $builder = $apply(app(ApprovalsManager::class)->request(ReleaseTestModel::create()), 'from()');
+
+        expect(fn () => $builder->workflow('payout'))->toThrow(InvalidApprovalRequestException::class);
+    });
+
+    it('refuses the same way under the fake, recording nothing', function (string $setting) use ($apply): void {
+        $fake = Approvals::fake();
+        $builder = $apply(Approvals::request(ReleaseTestModel::create()), $setting);
+
+        expect(fn () => $builder->workflow('payout'))->toThrow(InvalidApprovalRequestException::class, "[{$setting}]");
+
+        $fake->assertNothingOpened();
+    })->with($refused);
 });

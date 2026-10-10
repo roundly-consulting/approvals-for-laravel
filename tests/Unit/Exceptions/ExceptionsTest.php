@@ -6,6 +6,7 @@ use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Exceptions\ApprovalsException;
 use RoundlyConsulting\Approvals\Exceptions\IncompletePendingApprovalException;
 use RoundlyConsulting\Approvals\Exceptions\InvalidApprovalModelException;
+use RoundlyConsulting\Approvals\Exceptions\InvalidApprovalRequestException;
 use RoundlyConsulting\Approvals\Exceptions\InvalidStatusTransitionException;
 use RoundlyConsulting\Approvals\Exceptions\UnauthorizedApprovalException;
 use RoundlyConsulting\Approvals\Models\Approval;
@@ -48,4 +49,19 @@ it('builds an unauthorized exception message', function (): void {
 it('builds incomplete pending approval messages', function (): void {
     expect(IncompletePendingApprovalException::missingActor()->getMessage())->toContain('actor')
         ->and(IncompletePendingApprovalException::missingApprovable()->getMessage())->toContain('approvable');
+});
+
+it('builds a defined-by-workflow message naming each refused setting', function (): void {
+    $withApprovers = InvalidApprovalRequestException::definedByWorkflow('payout', ['from()', 'quorum()']);
+    $rulesOnly = InvalidApprovalRequestException::definedByWorkflow('release', ['stages()', 'continueOnRejection()']);
+
+    expect($withApprovers)->toBeInstanceOf(ApprovalsException::class)
+        ->and($withApprovers->getMessage())->toBe(
+            'The approval workflow preset [payout] defines the rule, quorum, stages and stage rejection itself '
+            .'and takes its approvers in open(), so [from(), quorum()] cannot be set before workflow(). '
+            .'Pass the approvers to open($approvers) instead of from().'
+        )
+        ->and($rulesOnly->getMessage())->toContain('[release]')
+        ->and($rulesOnly->getMessage())->toContain('[stages(), continueOnRejection()]')
+        ->and($rulesOnly->getMessage())->not->toContain('open($approvers)');
 });

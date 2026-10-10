@@ -18,6 +18,8 @@ use RoundlyConsulting\Approvals\Models\ApprovalRequest;
  *
  * An expiry set here, or on the request builder before `workflow()`, replaces the
  * preset's own `expiry` for this round; without one the round keeps the preset's.
+ * The expiry is the only request-builder setting that carries over: the preset
+ * defines the rest, so `workflow()` refuses them (approvers go to `open()`).
  */
 final class PendingWorkflowRequest
 {
