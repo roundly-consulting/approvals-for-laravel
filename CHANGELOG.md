@@ -6,6 +6,21 @@ All notable changes to `approvals-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+### Added
+
+- A round opened from a workflow preset can take its own deadline:
+  `Approvals::request($subject)->workflow('payout')->expiresIn(3600)->open($approvers)`, or
+  `->expiringAt($at)`. It replaces the preset's `expiry` for that round. A staged preset's round
+  gets one deadline for all its stages, the way the preset's own `expiry` works. Without one, the
+  round keeps the preset's `expiry`, as before. `OpenWorkflowRequestAction::execute()` takes the
+  deadline as an optional fourth argument.
+
+### Fixed
+
+- `Approvals::request($subject)->expiresIn(...)->workflow('payout')->open()` (or `->expiringAt()`)
+  no longer drops the expiry. It used to open the round with the preset's own `expiry`, or with no
+  deadline at all; the round now gets the expiry you set.
+
 ## 1.1.1 - 2026-10-10
 
 If `php artisan migrate` failed for you on MySQL 8 with SQLSTATE 1071, follow the recovery steps

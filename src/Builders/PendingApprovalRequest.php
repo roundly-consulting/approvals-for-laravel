@@ -23,6 +23,7 @@ use RoundlyConsulting\Approvals\Models\ApprovalRequest;
  *     Approvals::request($invoice)->from([$a, $b])->quorum(2)->open();
  *     Approvals::request($invoice)->stages([...])->continueOnRejection()->open();
  *     Approvals::request($invoice)->workflow('purchase')->open([$a, [$b, $c]]);
+ *     Approvals::request($invoice)->expiresIn(3600)->workflow('purchase')->open([$a, $b]);
  */
 final class PendingApprovalRequest
 {
@@ -132,10 +133,11 @@ final class PendingApprovalRequest
 
     /**
      * Open the request from a named workflow preset instead; its approvers go to open().
+     * An expiry already set here carries over and replaces the preset's own `expiry`.
      */
     public function workflow(string $name): PendingWorkflowRequest
     {
-        return new PendingWorkflowRequest($this->manager, $this->subject, $name);
+        return new PendingWorkflowRequest($this->manager, $this->subject, $name, $this->expiresAt);
     }
 
     public function open(): ApprovalRequest
