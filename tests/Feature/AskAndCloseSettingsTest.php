@@ -64,7 +64,7 @@ describe('ask()', function (): void {
             ->and($ask->expires_at?->toDateTimeString())->toBe('2026-10-10 13:00:00');
     });
 
-    it('keeps the ask\'s reason when the answer gives none, and takes the answer\'s when it does', function (): void {
+    it('gives the answer no reason when it gives none, and the answer\'s when it does', function (): void {
         $deployment = DeploymentTestModel::create();
         [$alice, $bob] = [ReviewerTestModel::create(), ReviewerTestModel::create()];
 
@@ -74,7 +74,7 @@ describe('ask()', function (): void {
         $silent = Approvals::for($deployment)->as($alice)->approve();
         $explained = Approvals::for($deployment)->as($bob)->because('Rollback plan is missing')->reject();
 
-        expect($silent->reason)->toBe('Please check the rollback plan')
+        expect($silent->reason)->toBeNull()
             ->and($explained->reason)->toBe('Rollback plan is missing')
             ->and(Approval::query()->count())->toBe(2);
     });

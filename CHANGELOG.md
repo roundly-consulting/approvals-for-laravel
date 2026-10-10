@@ -6,6 +6,16 @@ All notable changes to `approvals-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+### Fixed
+
+- An answer to an ask no longer takes the asker's reason. `approve()` or `reject()` without a
+  reason of its own used to keep the ask's (an approval read "Please review…"); it now records
+  no reason, and one given with `because()` replaces the ask's as before. The same holds for
+  `toggle()` answering an ask, the `GivesApprovals` trait and `Approval::approve()` /
+  `Approval::reject()` called directly. Withdrawals are unchanged: `cancel()` or toggling off
+  without a reason, a superseded decision and an ask retired when its round closes keep the
+  decision's own reason, and repeating a decision the actor already holds changes nothing.
+
 ## 1.2.2 - 2026-10-10
 
 **Upgrade note:** two settings that used to be dropped silently are now refused. `ask()` after

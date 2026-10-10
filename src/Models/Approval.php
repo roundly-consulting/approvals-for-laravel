@@ -201,14 +201,16 @@ class Approval extends Model
     }
 
     /**
-     * Approve the decision, valid until `$expiresAt` (for good when null). An answered
-     * ask's reply-by deadline is not carried over as the approval's own expiry.
+     * Approve the decision, valid until `$expiresAt` (for good when null). Only a pending
+     * decision (an ask) can be approved, and the approval is the answer, so it records
+     * its own reason: `null` clears the ask's rather than inheriting it, as the ask's
+     * reply-by deadline is not carried over as the approval's own expiry.
      */
     public function approve(?string $reason = null, ?CarbonInterface $expiresAt = null): static
     {
         $this->transitionTo(ApprovalStatus::Approved);
 
-        $this->reason = $reason ?? $this->reason;
+        $this->reason = $reason;
         $this->decided_at = CarbonImmutable::now();
         $this->expires_at = $expiresAt === null ? null : CarbonImmutable::instance($expiresAt->toDateTimeImmutable());
 
@@ -219,13 +221,14 @@ class Approval extends Model
 
     /**
      * Reject the decision. A rejection stands until it is withdrawn or superseded, so an
-     * answered ask's reply-by deadline is dropped rather than carried over.
+     * answered ask's reply-by deadline is dropped rather than carried over. Like
+     * approve(), it records its own reason: `null` clears the ask's.
      */
     public function reject(?string $reason = null): static
     {
         $this->transitionTo(ApprovalStatus::Rejected);
 
-        $this->reason = $reason ?? $this->reason;
+        $this->reason = $reason;
         $this->decided_at = CarbonImmutable::now();
         $this->expires_at = null;
         $this->save();
@@ -233,6 +236,11 @@ class Approval extends Model
         return $this;
     }
 
+    /**
+     * Withdraw the decision: the actor's withdrawal, a superseded decision, or an ask
+     * retired when its round closes. A withdrawal is not a decision of its own, so
+     * `null` keeps the decision's reason and a given one replaces it.
+     */
     public function cancel(?string $reason = null): static
     {
         $this->transitionTo(ApprovalStatus::Cancelled);

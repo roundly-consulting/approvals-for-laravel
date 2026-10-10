@@ -139,7 +139,7 @@ final class PendingApproval
     /**
      * Ask the actor for a decision: record a pending approval for the pair, with
      * because() as the ask's reason and expiresIn() / expiringAt() as its reply-by
-     * deadline. The answer keeps that reason unless it gives one of its own. A pending
+     * deadline. The answer records its own reason in its place, or none. A pending
      * decision counts towards no threshold, so weight() is refused rather than dropped:
      * set it on the approve() or reject() that answers the ask.
      *
