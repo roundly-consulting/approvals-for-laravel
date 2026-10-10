@@ -6,6 +6,17 @@ All notable changes to `approvals-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+## 1.1.1 - 2026-10-10
+
+If `php artisan migrate` failed for you on MySQL 8 with SQLSTATE 1071, follow the recovery steps
+in the [installation docs](https://roundly-consulting.com/open-source/docs/approvals-for-laravel/installation):
+republish the migrations with `--force`, drop the empty `approvals` table the failed run left
+behind, then migrate.
+
+### Changed
+
+- Maintenance: CI also runs the test suite against MySQL 8, alongside SQLite and PostgreSQL.
+
 ### Fixed
 
 - `php artisan migrate` now runs on MySQL 8 with utf8mb4. The `0001_create_approvals_table`
