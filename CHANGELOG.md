@@ -6,6 +6,16 @@ All notable changes to `approvals-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+## 1.2.1 - 2026-10-10
+
+**Security:** upgrade if you open approval rounds from a workflow preset. A round opened with
+`from()` before `workflow()` lost its named approvers, so under a preset rule that needs no names
+any approver could decide it. That call now throws `InvalidApprovalRequestException` instead of
+opening the round: code that used to run silently gets an exception. Pass the approvers to
+`open($approvers)` and drop the rule, `stages()` and `continueOnRejection()` calls, which the
+preset defines. Rounds opened that way before this release still have no named approvers; review
+any that are open.
+
 ### Fixed
 
 - Named approvers can no longer be lost on the way into a workflow preset.
