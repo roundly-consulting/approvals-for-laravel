@@ -6,6 +6,16 @@ All notable changes to `approvals-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+## 1.2.2 - 2026-10-10
+
+**Upgrade note:** two settings that used to be dropped silently are now refused. `ask()` after
+`weight()`, and `close()` after `because()`, throw `InvalidApprovalRequestException` and record
+nothing, so code that used to run silently gets an exception. The setting was always ignored, so
+pass it where it has a place (the weight on the `approve()` or `reject()` that answers the ask),
+or drop it (`close()` keeps no reason). `toggle()` pinned with `within()` to a closed round, or to
+a round of another subject, now throws the way `approve()` does instead of toggling the subject's
+open round.
+
 ### Fixed
 
 - `toggle()` now honours `within()`. Pinned to a closed round,
