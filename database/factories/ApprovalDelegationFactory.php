@@ -7,6 +7,7 @@ namespace RoundlyConsulting\Approvals\Database\Factories;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Approvals\Models\ApprovalDelegation;
+use RoundlyConsulting\Approvals\Support\ApprovalDelegationModelResolver;
 
 /**
  * @extends Factory<ApprovalDelegation>
@@ -14,6 +15,18 @@ use RoundlyConsulting\Approvals\Models\ApprovalDelegation;
 final class ApprovalDelegationFactory extends Factory
 {
     protected $model = ApprovalDelegation::class;
+
+    /**
+     * Build the configured model, not the packaged one: a host that swaps
+     * `approvals.delegation_model` gets its own class, with its casts,
+     * events and observers.
+     *
+     * @return class-string<ApprovalDelegation>
+     */
+    public function modelName(): string
+    {
+        return ApprovalDelegationModelResolver::class();
+    }
 
     /**
      * @return array<string, mixed>

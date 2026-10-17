@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Approvals\Enums\ApprovalRule;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Models\ApprovalRequest;
+use RoundlyConsulting\Approvals\Support\ApprovalRequestModelResolver;
 
 /**
  * @extends Factory<ApprovalRequest>
@@ -16,6 +17,18 @@ use RoundlyConsulting\Approvals\Models\ApprovalRequest;
 final class ApprovalRequestFactory extends Factory
 {
     protected $model = ApprovalRequest::class;
+
+    /**
+     * Build the configured model, not the packaged one: a host that swaps
+     * `approvals.request_model` gets its own class, with its casts,
+     * events and observers.
+     *
+     * @return class-string<ApprovalRequest>
+     */
+    public function modelName(): string
+    {
+        return ApprovalRequestModelResolver::class();
+    }
 
     /**
      * @return array<string, mixed>

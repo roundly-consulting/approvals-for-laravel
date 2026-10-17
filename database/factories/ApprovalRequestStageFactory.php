@@ -9,6 +9,7 @@ use RoundlyConsulting\Approvals\Enums\ApprovalRule;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Models\ApprovalRequest;
 use RoundlyConsulting\Approvals\Models\ApprovalRequestStage;
+use RoundlyConsulting\Approvals\Support\ApprovalRequestStageModelResolver;
 
 /**
  * @extends Factory<ApprovalRequestStage>
@@ -16,6 +17,18 @@ use RoundlyConsulting\Approvals\Models\ApprovalRequestStage;
 final class ApprovalRequestStageFactory extends Factory
 {
     protected $model = ApprovalRequestStage::class;
+
+    /**
+     * Build the configured model, not the packaged one: a host that swaps
+     * `approvals.stage_model` gets its own class, with its casts,
+     * events and observers.
+     *
+     * @return class-string<ApprovalRequestStage>
+     */
+    public function modelName(): string
+    {
+        return ApprovalRequestStageModelResolver::class();
+    }
 
     /**
      * @return array<string, mixed>
