@@ -6,6 +6,8 @@ All notable changes to `approvals-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+## 1.2.5 - 2026-10-17
+
 ### Fixed
 
 - Factories build the configured model when a host swaps it.
