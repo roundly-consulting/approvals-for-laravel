@@ -61,6 +61,13 @@ ArchPresets::noLocalCryptoPrimitives('RoundlyConsulting\Approvals');
 ArchPresets::modelsResolveThroughSeam(__DIR__.'/../src', 'Support');
 
 /**
+ * The factory half of the seam: every factory of the four swappable models returns its
+ * resolver from `modelName()`, so a host that swapped one gets its own rows (and events)
+ * out of `Approval::factory()` instead of the packaged class.
+ */
+ArchPresets::factoriesResolveThroughSeam(__DIR__.'/../database/factories', __DIR__.'/../src', 'Support');
+
+/**
  * The Dependency Policy as a test. No `alsoAllow`: approvals' `require` ships only
  * php/illuminate/roundly, and the workflow installs test tooling with `--dev`, so nothing
  * legitimately lands in `require` that this must forgive. If this goes red, the graph is
