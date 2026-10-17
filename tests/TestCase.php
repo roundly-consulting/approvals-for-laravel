@@ -35,4 +35,13 @@ abstract class TestCase extends PackageTestCase
             __DIR__.'/database/migrations',
         ];
     }
+
+    /**
+     * Migrate once per worker and schema signature; each test still starts on empty tables
+     * with the key counters where a fresh migrate leaves them.
+     */
+    protected function keepsMigratedSchema(): bool
+    {
+        return true;
+    }
 }
