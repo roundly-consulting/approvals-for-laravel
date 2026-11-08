@@ -11,6 +11,7 @@ use RoundlyConsulting\Approvals\Actions\ApproveAction;
 use RoundlyConsulting\Approvals\Actions\CancelApprovalAction;
 use RoundlyConsulting\Approvals\Actions\CloseApprovalRequestAction;
 use RoundlyConsulting\Approvals\Actions\RejectAction;
+use RoundlyConsulting\Approvals\Actions\ReplaceStageApproversAction;
 use RoundlyConsulting\Approvals\Actions\RequestApprovalAction;
 use RoundlyConsulting\Approvals\Actions\ToggleApprovalAction;
 use RoundlyConsulting\Approvals\ApprovalsManager;
@@ -25,6 +26,8 @@ use RoundlyConsulting\Approvals\Support\ApprovalChecker;
 
 /**
  * One actor's decision on one approvable: `Approvals::for($invoice)->as($user)->approve()`.
+ * Without an actor it also closes a round (`close()`) or hands a stage to other
+ * approvers (`replaceApprovers()`).
  */
 final class PendingApproval
 {
@@ -62,7 +65,8 @@ final class PendingApproval
      * Pin the decision to this request instead of the approvable's latest open one.
      * The request must belong to the approvable and still be open: a closed one
      * (approved, rejected, cancelled or expired) refuses the decision with a
-     * ClosedApprovalRequestException. With close(), only this request is closed.
+     * ClosedApprovalRequestException. With close(), only this request is closed; with
+     * replaceApprovers(), its stage is the one replaced.
      */
     public function within(ApprovalRequest $request): self
     {
@@ -272,6 +276,54 @@ final class PendingApproval
             CloseApprovalRequestAction::class,
             fn (CloseApprovalRequestAction $action): int => $action->execute($subject, $outcome, $this->request),
             ['subject' => $subject, 'request' => $this->request, 'outcome' => $outcome],
+        );
+    }
+
+    /**
+     * Hand the open stage `$stage` (by name) of the approvable's open round — the round
+     * pinned with within() when one is — to other approvers, in place. The approvers who
+     * already decided the stage stay named and their decisions keep counting; the ones
+     * still to decide are replaced by `$approvers`. The round keeps its absolute expiry,
+     * the replaced approvers' outstanding asks are retired, and ApprovalStageOpened
+     * announces the stage again. The round never resolves here.
+     *
+     * An empty list is refused (a stage without names would let anyone decide it), and
+     * so is an approver who already decided the stage, a stage that is not open, a flat
+     * or closed round, and a list under which the stage could never resolve or would
+     * settle at once. Nothing changes when it is refused.
+     *
+     * Replacing records no decision and involves no actor, so as(), because(), weight()
+     * and an expiry are refused. No authorization gate runs: check who may reassign the
+     * stage before calling it.
+     *
+     * @param  list<Model>  $approvers
+     * @return ApprovalRequest the round, read back
+     *
+     * @throws InvalidApprovalRequestException
+     */
+    public function replaceApprovers(string $stage, array $approvers): ApprovalRequest
+    {
+        $subject = $this->approvable();
+
+        $refused = $this->decisionSettings();
+
+        if ($this->reason !== null) {
+            array_unshift($refused, 'because()');
+        }
+
+        if ($this->actor !== null) {
+            array_unshift($refused, 'as()');
+        }
+
+        if ($refused !== []) {
+            throw InvalidApprovalRequestException::settingsOnReplace($refused);
+        }
+
+        return $this->manager->perform(
+            ApprovalOperation::Replace,
+            ReplaceStageApproversAction::class,
+            fn (ReplaceStageApproversAction $action): ApprovalRequest => $action->execute($subject, $stage, $approvers, $this->request),
+            ['subject' => $subject, 'request' => $this->request, 'stage' => $stage, 'approvers' => $approvers],
         );
     }
 

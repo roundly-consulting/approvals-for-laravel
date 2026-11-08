@@ -7,6 +7,7 @@ namespace RoundlyConsulting\Approvals\Exceptions;
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Approvals\Enums\ApprovalRule;
 use RoundlyConsulting\Approvals\Models\ApprovalRequest;
+use RoundlyConsulting\Approvals\Models\ApprovalRequestStage;
 
 final class InvalidApprovalRequestException extends ApprovalsException
 {
@@ -158,6 +159,101 @@ final class InvalidApprovalRequestException extends ApprovalsException
     public static function unreachableThreshold(int $threshold, int $reachable): self
     {
         return new self("An approval request's threshold of {$threshold} can never be met: its approvers carry {$reachable} at most.");
+    }
+
+    /**
+     * An actor or decision settings were given before `replaceApprovers()`. Replacing a
+     * stage's approvers records no decision and involves no actor, so they would have
+     * been dropped. They are refused instead.
+     *
+     * @param  list<string>  $settings  the builder methods called, e.g. `as()`, `because()`
+     */
+    public static function settingsOnReplace(array $settings): self
+    {
+        $message = 'replaceApprovers() hands a stage to other approvers and records no decision, so ['.implode(', ', $settings).'] '
+            .'cannot be set before it. It takes for() and within() only.';
+
+        if (in_array('as()', $settings, true)) {
+            $message .= ' No actor is involved and no authorization gate runs: check who may replace the approvers before you call replaceApprovers().';
+        }
+
+        return new self($message);
+    }
+
+    /**
+     * `replaceApprovers()` was given no approvers. A stage without named approvers lets
+     * any approver decide it, so an empty list is refused rather than opening the stage.
+     */
+    public static function noReplacementApprovers(): self
+    {
+        return new self(
+            'replaceApprovers() needs at least one approver: a stage without named approvers would let anyone decide it. '
+            .'Close the round with close() to stop it instead.'
+        );
+    }
+
+    /**
+     * The subject has no approval round at all to replace approvers on.
+     */
+    public static function noRound(Model $subject): self
+    {
+        return new self('The subject ['.$subject->getMorphClass().'#'.self::keyOf($subject).'] has no approval round to replace approvers on.');
+    }
+
+    /**
+     * `replaceApprovers()` reached a flat round: only a stage's approvers can be replaced.
+     */
+    public static function notStaged(ApprovalRequest $request): self
+    {
+        return new self('Approval request ['.$request->getKey().'] is not staged: replaceApprovers() replaces the approvers of a stage.');
+    }
+
+    public static function unknownStage(ApprovalRequest $request, string $stage): self
+    {
+        return new self('Approval request ['.$request->getKey()."] has no stage [{$stage}].");
+    }
+
+    /**
+     * The named stage is not the one open for decisions: it settled already, or an
+     * earlier stage is still open.
+     */
+    public static function stageNotOpen(ApprovalRequest $request, ApprovalRequestStage $stage): self
+    {
+        $where = self::stageLabel($request, $stage);
+
+        return new self($stage->status->isFinal()
+            ? "{$where} has already settled ({$stage->status->value}): only the open stage's approvers can be replaced."
+            : "{$where} has not opened yet: only the open stage's approvers can be replaced.");
+    }
+
+    /**
+     * A replacement approver already decided the stage. Its decision stands, so it is
+     * not a pending approver that can be named again.
+     */
+    public static function alreadyDecided(Model $approver, ApprovalRequest $request, ApprovalRequestStage $stage): self
+    {
+        return new self(
+            'The approver ['.$approver->getMorphClass().'#'.self::keyOf($approver).'] has already decided '
+            .lcfirst(self::stageLabel($request, $stage)).': its decision stands, so it cannot be named as a pending approver.'
+        );
+    }
+
+    /**
+     * Under its rule, the stage's decisions already settle it once the replacement
+     * approvers are named, so nobody would be left to decide it.
+     */
+    public static function replacementSettlesStage(ApprovalRequest $request, ApprovalRequestStage $stage): self
+    {
+        return new self(
+            'These approvers would settle '.lcfirst(self::stageLabel($request, $stage)).' at once: under its rule the decisions '
+            .'already made decide it. Name approvers who can still change the outcome, or close the round.'
+        );
+    }
+
+    private static function stageLabel(ApprovalRequest $request, ApprovalRequestStage $stage): string
+    {
+        return 'Stage '.$stage->position.($stage->name !== null ? ' ['.$stage->name.']' : '')
+            .' of approval request ['.$request->getKey().']';
     }
 
     private static function keyOf(Model $model): string

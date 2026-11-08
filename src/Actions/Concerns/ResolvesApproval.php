@@ -170,6 +170,7 @@ trait ResolvesApproval
     private function writeDecision(DecisionTarget $target, ApprovalStatus $to, DecisionData $data): RecordedDecision
     {
         $this->ensureRoundStillOpen($target->request);
+        $this->ensureStillNamed($target);
 
         $live = app(LiveDecisions::class)->in($target);
 
@@ -345,6 +346,28 @@ trait ResolvesApproval
 
         if ($stored instanceof ApprovalRequest && $stored->status !== ApprovalStatus::Pending) {
             throw ClosedApprovalRequestException::for($stored);
+        }
+    }
+
+    /**
+     * Run inside the write's transaction, after the request lock: refuse the write when
+     * the stage's approvers were replaced after the target was resolved and no longer
+     * name the actor (`replaceApprovers()` takes the same lock), so a replaced approver —
+     * or the delegate of one — never decides the stage it was taken off.
+     *
+     * @throws UnauthorizedApprovalException
+     */
+    protected function ensureStillNamed(DecisionTarget $target): void
+    {
+        if (! $target->request instanceof ApprovalRequest || ! $target->stage instanceof ApprovalRequestStage) {
+            return;
+        }
+
+        $stored = $target->stage->newQuery()->whereKey($target->stage->getKey())->first() ?? $target->stage;
+        $named = $stored->namedApprovers();
+
+        if ($named !== [] && ! NamedApprover::listIncludes($named, $target->actor)) {
+            throw UnauthorizedApprovalException::notAnApprover($target->decidedBy ?? $target->actor, $target->request, $stored);
         }
     }
 

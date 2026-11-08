@@ -296,6 +296,17 @@ class ApprovalRequest extends Model
         return $this;
     }
 
+    /**
+     * The outcome the stage's rule reaches on its decisions as they stand (null while it
+     * is still undecided), without settling anything.
+     *
+     * @internal
+     */
+    public function stageOutcome(ApprovalRequestStage $stage): ?ApprovalStatus
+    {
+        return app(RuleEvaluator::class)->evaluate($stage->rule, $this->stageTally($stage));
+    }
+
     private function flatTally(): DecisionTally
     {
         return $this->tally(

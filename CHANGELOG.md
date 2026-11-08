@@ -6,6 +6,19 @@ All notable changes to `approvals-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+### Added
+
+- `Approvals::for($subject)->within($round)->replaceApprovers($stage, $approvers)` hands the open stage of a staged
+  round to other approvers in place. Decisions already made on the stage keep counting, and the round keeps its
+  absolute expiry. The replaced approvers' outstanding asks are withdrawn. `ApprovalStageOpened` fires for the stage
+  again, and the round never resolves on the way (no `ApprovalRequestResolved`). An empty list is refused, and so
+  are an approver who already decided, a closed, overdue or flat round, an unknown or not-open stage, and a list under
+  which the stage could never resolve or would settle at once. Without `within()` it uses the subject's open round.
+  It writes under the round's row lock, so a decision still in flight from a replaced approver (or its delegate) is
+  refused with `UnauthorizedApprovalException` rather than recorded.
+- `Approvals::fake()` records replacements: `assertApproversReplaced($subject, ?$stage)` and `assertNothingReplaced()`,
+  and the `ApprovalOperation::Replace` case.
+
 ## 2.0.0 - 2026-11-07
 
 ### Changed

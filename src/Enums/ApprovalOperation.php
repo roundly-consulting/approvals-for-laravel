@@ -47,4 +47,7 @@ enum ApprovalOperation: string
 
     /** A subject's open request was closed from outside, as cancelled or expired. */
     case Close = 'close';
+
+    /** The pending approvers of a round's open stage were replaced. */
+    case Replace = 'replace';
 }

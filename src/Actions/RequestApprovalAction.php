@@ -46,6 +46,7 @@ final class RequestApprovalAction
             $asked = null;
 
             $this->ensureRoundStillOpen($target->request);
+            $this->ensureStillNamed($target);
 
             $live = app(LiveDecisions::class)->in($target);
 

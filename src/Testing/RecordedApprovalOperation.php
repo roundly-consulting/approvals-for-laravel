@@ -13,7 +13,8 @@ use RoundlyConsulting\Approvals\Enums\ApprovalOperation;
  *
  * Context keys: `actor`, `approvable`, `request`, `reason`, `weight`, `expires_at`
  * (decisions: the builder's settings as given, null when unset); `subject`,
- * `staged`, `workflow` (open); `subject`, `request`, `outcome` (close); `delegator`,
+ * `staged`, `workflow` (open); `subject`, `request`, `outcome` (close); `subject`,
+ * `request`, `stage`, `approvers` (replace); `delegator`,
  * `delegate`, `starts_at`, `ends_at` (delegate / revoke); `now`, `subjectType` (expire).
  */
 final readonly class RecordedApprovalOperation

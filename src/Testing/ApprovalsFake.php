@@ -222,6 +222,31 @@ final class ApprovalsFake extends ApprovalsManager
         $this->assertNone(ApprovalOperation::Close, 'Expected no approval round to be closed, but %d close(s) were recorded.');
     }
 
+    /**
+     * Assert the pending approvers of one of the subject's stages were replaced
+     * (`->replaceApprovers()`) — of the stage with that name when given.
+     */
+    public function assertApproversReplaced(Model $subject, ?string $stage = null): void
+    {
+        $matches = array_filter(
+            $this->recorded(ApprovalOperation::Replace),
+            static fn (RecordedApprovalOperation $recorded): bool => $recorded->involves('subject', $subject)
+                && ($stage === null || ($recorded->context['stage'] ?? null) === $stage),
+        );
+
+        Assert::assertNotEmpty(
+            $matches,
+            $stage === null
+                ? 'Expected the approvers of a stage of the subject to be replaced, but none were.'
+                : "Expected the approvers of the subject's [{$stage}] stage to be replaced, but none were.",
+        );
+    }
+
+    public function assertNothingReplaced(): void
+    {
+        $this->assertNone(ApprovalOperation::Replace, 'Expected no approvers to be replaced, but %d replacement(s) were recorded.');
+    }
+
     private function assertDecision(ApprovalOperation $operation, string $verb, Model $approvable, ?Model $actor): void
     {
         Assert::assertNotEmpty(
