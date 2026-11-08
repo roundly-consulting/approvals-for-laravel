@@ -6,6 +6,8 @@ All notable changes to `approvals-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+## 2.1.0 - 2026-11-08
+
 ### Added
 
 - `Approvals::for($subject)->within($round)->replaceApprovers($stage, $approvers)` hands the open stage of a staged
@@ -18,6 +20,10 @@ All notable changes to `approvals-for-laravel` are documented in this file. The 
   refused with `UnauthorizedApprovalException` rather than recorded.
 - `Approvals::fake()` records replacements: `assertApproversReplaced($subject, ?$stage)` and `assertNothingReplaced()`,
   and the `ApprovalOperation::Replace` case.
+
+### Changed
+
+- Maintenance: the PHP 8.6 test job resolves Laravel 13.32 or newer.
 
 ## 2.0.0 - 2026-11-07
 
