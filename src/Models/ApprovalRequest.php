@@ -41,6 +41,8 @@ use RoundlyConsulting\Approvals\Support\RuleEvaluator;
  * @property bool $staged
  * @property bool $reject_on_stage_rejection
  * @property string|null $workflow
+ * @property array<array-key, mixed>|null $excluded_approvers
+ * @property string|null $subject_fingerprint
  * @property ApprovalStatus $status
  * @property CarbonImmutable|null $resolved_at
  * @property CarbonImmutable|null $expires_at
@@ -66,6 +68,7 @@ class ApprovalRequest extends Model
             'rule' => ApprovalRule::class,
             'status' => ApprovalStatus::class,
             'approvers' => 'array',
+            'excluded_approvers' => 'array',
             'staged' => 'boolean',
             'reject_on_stage_rejection' => 'boolean',
             'resolved_at' => 'immutable_datetime',
@@ -107,6 +110,30 @@ class ApprovalRequest extends Model
     public function namedApprovers(): array
     {
         return NamedApprover::listFrom($this->approvers);
+    }
+
+    /**
+     * The actors the round's opener excluded from deciding it (`->excluding()`). Those
+     * the configured exclusion resolver names come on top, at decision time.
+     *
+     * @return list<NamedApprover>
+     */
+    public function excludedApprovers(): array
+    {
+        // Read only when the column was selected: a host that has not run the 2.2.0
+        // migration yet has no such column, and a strict model would throw on it.
+        return array_key_exists('excluded_approvers', $this->attributes)
+            ? NamedApprover::listFrom($this->excluded_approvers)
+            : [];
+    }
+
+    /**
+     * The subject's ProvidesApprovalFingerprint value stored when the round opened; null
+     * when it provided none (or the column has not been migrated yet).
+     */
+    public function openedWithFingerprint(): ?string
+    {
+        return array_key_exists('subject_fingerprint', $this->attributes) ? $this->subject_fingerprint : null;
     }
 
     /**
@@ -307,6 +334,17 @@ class ApprovalRequest extends Model
         return app(RuleEvaluator::class)->evaluate($stage->rule, $this->stageTally($stage));
     }
 
+    /**
+     * The outcome a flat round's rule reaches on its decisions as they stand (null while
+     * it is still undecided), without settling anything.
+     *
+     * @internal
+     */
+    public function flatOutcome(): ?ApprovalStatus
+    {
+        return app(RuleEvaluator::class)->evaluate($this->rule, $this->flatTally());
+    }
+
     private function flatTally(): DecisionTally
     {
         return $this->tally(
@@ -389,27 +427,50 @@ class ApprovalRequest extends Model
      */
     private function finalize(ApprovalStatus $outcome): bool
     {
-        $from = $this->status;
+        if (! $this->claimFinal($outcome)) {
+            return false;
+        }
 
-        $finalized = $this->newQuery()
+        $this->announceFinal();
+
+        return true;
+    }
+
+    /**
+     * The status half of finalizing: move the request from pending to `$outcome` with a
+     * conditional update and read it back, announcing nothing. Lets a caller holding the
+     * round's row lock settle it inside its transaction and announce it once committed.
+     *
+     * @internal
+     *
+     * @return bool whether this call moved it
+     */
+    public function claimFinal(ApprovalStatus $outcome): bool
+    {
+        $claimed = $this->newQuery()
             ->whereKey($this->getKey())
             ->where('status', ApprovalStatus::Pending->value)
             ->update(['status' => $outcome->value, 'resolved_at' => CarbonImmutable::now()]) === 1;
 
         $this->refresh();
 
-        if (! $finalized) {
-            return false;
-        }
+        return $claimed;
+    }
 
-        // The round takes no more decisions: retire its asks before announcing it, so a
-        // listener never sees a resolved request still waiting on someone.
+    /**
+     * The announcing half of finalizing, run once after claimFinal() moved the request:
+     * its outstanding asks are retired (the round takes no more decisions, so a listener
+     * never sees a resolved request still waiting on someone), then
+     * ApprovalRequestResolved and ApprovalStatusChanged (pending → its status) fire.
+     *
+     * @internal
+     */
+    public function announceFinal(): void
+    {
         $this->retireOutstandingAsks($this->decisions()->getQuery());
 
         ApprovalRequestResolved::dispatch($this);
-        ApprovalStatusChanged::dispatch($this, $from, $outcome);
-
-        return true;
+        ApprovalStatusChanged::dispatch($this, ApprovalStatus::Pending, $this->status);
     }
 
     /**

@@ -7,6 +7,7 @@ namespace RoundlyConsulting\Approvals\Actions\Concerns;
 use Closure;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\UniqueConstraintViolationException;
+use RoundlyConsulting\Approvals\Actions\VoidChangedApprovalRequestsAction;
 use RoundlyConsulting\Approvals\DataTransferObjects\DecisionData;
 use RoundlyConsulting\Approvals\DataTransferObjects\DecisionTarget;
 use RoundlyConsulting\Approvals\DataTransferObjects\NamedApprover;
@@ -14,6 +15,7 @@ use RoundlyConsulting\Approvals\DataTransferObjects\RecordedDecision;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Events\ApprovalExpired;
 use RoundlyConsulting\Approvals\Events\ApprovalStatusChanged;
+use RoundlyConsulting\Approvals\Exceptions\ChangedApprovalSubjectException;
 use RoundlyConsulting\Approvals\Exceptions\ClosedApprovalRequestException;
 use RoundlyConsulting\Approvals\Exceptions\InvalidApprovalRequestException;
 use RoundlyConsulting\Approvals\Exceptions\UnauthorizedApprovalException;
@@ -24,7 +26,9 @@ use RoundlyConsulting\Approvals\Support\ApprovalChecker;
 use RoundlyConsulting\Approvals\Support\ApprovalModelResolver;
 use RoundlyConsulting\Approvals\Support\ApprovalRequestModelResolver;
 use RoundlyConsulting\Approvals\Support\DelegationResolver;
+use RoundlyConsulting\Approvals\Support\ExcludedApprovers;
 use RoundlyConsulting\Approvals\Support\LiveDecisions;
+use RoundlyConsulting\Approvals\Support\SubjectFingerprint;
 use RoundlyConsulting\Approvals\Support\WeightResolver;
 
 /**
@@ -63,9 +67,20 @@ trait ResolvesApproval
 
         $named = $request instanceof ApprovalRequest ? $request->approversFor($stage) : [];
 
+        // An excluded actor decides nothing: not as itself, not as anyone's delegate.
+        $excluded = app(ExcludedApprovers::class)->for($approvable, $request);
+
+        if (NamedApprover::listIncludes($excluded, $actor)) {
+            throw UnauthorizedApprovalException::excluded($actor);
+        }
+
         if (! $request instanceof ApprovalRequest || $named === []) {
             $decidedBy = null;
             $effectiveActor = $actsForOthers ? $this->effectiveActor($actor, $decidedBy) : $actor;
+
+            if ($decidedBy instanceof Model && NamedApprover::listIncludes($excluded, $effectiveActor)) {
+                throw UnauthorizedApprovalException::excludedPrincipal($actor, $effectiveActor);
+            }
 
             return new DecisionTarget($effectiveActor, $decidedBy, $approvable, $request, $stage);
         }
@@ -75,12 +90,28 @@ trait ResolvesApproval
         }
 
         if ($actsForOthers) {
+            $excludedPrincipal = null;
+
             foreach (app(DelegationResolver::class)->activeDelegationsTo($actor) as $delegation) {
                 $delegator = $delegation->delegator;
 
-                if ($delegator instanceof Model && NamedApprover::listIncludes($named, $delegator)) {
-                    return new DecisionTarget($delegator, $actor, $approvable, $request, $stage);
+                if (! $delegator instanceof Model || ! NamedApprover::listIncludes($named, $delegator)) {
+                    continue;
                 }
+
+                // A delegate standing in for an excluded approver as well as for another
+                // one decides for the other.
+                if (NamedApprover::listIncludes($excluded, $delegator)) {
+                    $excludedPrincipal ??= $delegator;
+
+                    continue;
+                }
+
+                return new DecisionTarget($delegator, $actor, $approvable, $request, $stage);
+            }
+
+            if ($excludedPrincipal instanceof Model) {
+                throw UnauthorizedApprovalException::excludedPrincipal($actor, $excludedPrincipal);
             }
         }
 
@@ -133,9 +164,59 @@ trait ResolvesApproval
      */
     protected function recordDecision(DecisionTarget $target, ApprovalStatus $to, DecisionData $data): RecordedDecision
     {
+        $this->guardSubjectVersion($target);
         $this->lapseOverdueDecision($target);
 
         return $this->writeInSlot(fn (): RecordedDecision => $this->writeDecision($target, $to, $data));
+    }
+
+    /**
+     * With `approvals.fingerprint.on_change` set, refuse a decision on a round whose
+     * subject changed since it opened — and, set to `void`, void the round first. Runs
+     * before the write's transaction, so the void is not rolled back with the refused
+     * decision; the write re-checks under the round's lock (ensureSubjectUnchanged()).
+     *
+     * @throws ChangedApprovalSubjectException
+     */
+    protected function guardSubjectVersion(DecisionTarget $target): void
+    {
+        if (! $target->request instanceof ApprovalRequest) {
+            return;
+        }
+
+        $mode = SubjectFingerprint::onChange();
+
+        if ($mode === SubjectFingerprint::IGNORE
+            || ! SubjectFingerprint::changed($target->request, SubjectFingerprint::current($target->approvable))) {
+            return;
+        }
+
+        if ($mode === SubjectFingerprint::VOID) {
+            app(VoidChangedApprovalRequestsAction::class)->execute($target->approvable, $target->request);
+        }
+
+        throw ChangedApprovalSubjectException::for($target->request, $mode === SubjectFingerprint::VOID);
+    }
+
+    /**
+     * Run inside the write's transaction, after the request lock: the subject's
+     * fingerprint as it stands, refusing the write (without voiding — that would roll
+     * back with it) when the subject changed after guardSubjectVersion() looked and
+     * `approvals.fingerprint.on_change` is set. The value is stamped on the decision.
+     *
+     * @throws ChangedApprovalSubjectException
+     */
+    protected function ensureSubjectUnchanged(DecisionTarget $target): ?string
+    {
+        $current = SubjectFingerprint::current($target->approvable);
+
+        if ($target->request instanceof ApprovalRequest
+            && SubjectFingerprint::onChange() !== SubjectFingerprint::IGNORE
+            && SubjectFingerprint::changed($target->request, $current)) {
+            throw ChangedApprovalSubjectException::for($target->request, false);
+        }
+
+        return $current;
     }
 
     /**
@@ -171,6 +252,7 @@ trait ResolvesApproval
     {
         $this->ensureRoundStillOpen($target->request);
         $this->ensureStillNamed($target);
+        $fingerprint = $this->ensureSubjectUnchanged($target);
 
         $live = app(LiveDecisions::class)->in($target);
 
@@ -195,6 +277,10 @@ trait ResolvesApproval
         $from = $approval->status;
 
         $this->applyDecisionContext($approval, $target, $data->weight);
+
+        if ($fingerprint !== null) {
+            $approval->subject_fingerprint = $fingerprint;
+        }
 
         $to === ApprovalStatus::Approved
             ? $approval->approve($data->reason, $data->expiresAt)
@@ -351,20 +437,29 @@ trait ResolvesApproval
 
     /**
      * Run inside the write's transaction, after the request lock: refuse the write when
-     * the stage's approvers were replaced after the target was resolved and no longer
-     * name the actor (`replaceApprovers()` takes the same lock), so a replaced approver —
-     * or the delegate of one — never decides the stage it was taken off.
+     * the approvers were replaced after the target was resolved and no longer name the
+     * actor — the stage's on a staged round, the round's own on a flat one
+     * (`replaceApprovers()` / `replaceFlatApprovers()` take the same lock) — so a
+     * replaced approver, or the delegate of one, never decides what it was taken off.
      *
      * @throws UnauthorizedApprovalException
      */
     protected function ensureStillNamed(DecisionTarget $target): void
     {
-        if (! $target->request instanceof ApprovalRequest || ! $target->stage instanceof ApprovalRequestStage) {
+        if (! $target->request instanceof ApprovalRequest) {
             return;
         }
 
-        $stored = $target->stage->newQuery()->whereKey($target->stage->getKey())->first() ?? $target->stage;
-        $named = $stored->namedApprovers();
+        if ($target->stage instanceof ApprovalRequestStage) {
+            $stored = $target->stage->newQuery()->whereKey($target->stage->getKey())->first() ?? $target->stage;
+            $named = $stored->namedApprovers();
+        } elseif (! $target->request->staged) {
+            $stored = null;
+            $round = $target->request->newQuery()->whereKey($target->request->getKey())->first() ?? $target->request;
+            $named = $round->namedApprovers();
+        } else {
+            return;
+        }
 
         if ($named !== [] && ! NamedApprover::listIncludes($named, $target->actor)) {
             throw UnauthorizedApprovalException::notAnApprover($target->decidedBy ?? $target->actor, $target->request, $stored);

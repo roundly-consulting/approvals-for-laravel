@@ -23,12 +23,29 @@ use RoundlyConsulting\Approvals\Models\ApprovalRequest;
  */
 final class PendingWorkflowRequest
 {
+    /**
+     * @param  list<Model>  $excluded
+     */
     public function __construct(
         private readonly ApprovalsManager $manager,
         private readonly Model $subject,
         private readonly string $workflow,
         private ?CarbonInterface $expiresAt = null,
+        private array $excluded = [],
     ) {}
+
+    /**
+     * Exclude these actors from deciding the round (the requester, say), as the request
+     * builder's excluding() does. Replaces any list set before workflow().
+     *
+     * @param  list<Model>  $actors
+     */
+    public function excluding(array $actors): self
+    {
+        $this->excluded = $actors;
+
+        return $this;
+    }
 
     /**
      * Give the round this deadline instead of the preset's own `expiry`.
@@ -62,15 +79,17 @@ final class PendingWorkflowRequest
     {
         $preset = $this->manager->preset($this->workflow);
         $expiresAt = $this->expiresAt;
+        $excluded = $this->excluded;
 
         return $this->manager->perform(
             ApprovalOperation::Open,
             OpenWorkflowRequestAction::class,
-            fn (OpenWorkflowRequestAction $action): ApprovalRequest => $action->execute($this->subject, $preset, $approvers, $expiresAt),
+            fn (OpenWorkflowRequestAction $action): ApprovalRequest => $action->execute($this->subject, $preset, $approvers, $expiresAt, $excluded),
             [
                 'subject' => $this->subject,
                 'staged' => $preset->isStaged(),
                 'workflow' => $this->workflow,
+                'excluded' => $excluded,
             ],
         );
     }

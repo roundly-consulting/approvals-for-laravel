@@ -10,24 +10,31 @@ use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Approvals\Actions\ApproveAction;
 use RoundlyConsulting\Approvals\Actions\CancelApprovalAction;
 use RoundlyConsulting\Approvals\Actions\CloseApprovalRequestAction;
+use RoundlyConsulting\Approvals\Actions\RecheckApprovalThresholdAction;
 use RoundlyConsulting\Approvals\Actions\RejectAction;
+use RoundlyConsulting\Approvals\Actions\ReplaceRequestApproversAction;
 use RoundlyConsulting\Approvals\Actions\ReplaceStageApproversAction;
 use RoundlyConsulting\Approvals\Actions\RequestApprovalAction;
 use RoundlyConsulting\Approvals\Actions\ToggleApprovalAction;
+use RoundlyConsulting\Approvals\Actions\VoidChangedApprovalRequestsAction;
 use RoundlyConsulting\Approvals\ApprovalsManager;
 use RoundlyConsulting\Approvals\DataTransferObjects\DecisionData;
+use RoundlyConsulting\Approvals\DataTransferObjects\ThresholdVerdict;
 use RoundlyConsulting\Approvals\Enums\ApprovalOperation;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Exceptions\IncompletePendingApprovalException;
 use RoundlyConsulting\Approvals\Exceptions\InvalidApprovalRequestException;
+use RoundlyConsulting\Approvals\Exceptions\InvalidStatusTransitionException;
 use RoundlyConsulting\Approvals\Models\Approval;
 use RoundlyConsulting\Approvals\Models\ApprovalRequest;
 use RoundlyConsulting\Approvals\Support\ApprovalChecker;
 
 /**
  * One actor's decision on one approvable: `Approvals::for($invoice)->as($user)->approve()`.
- * Without an actor it also closes a round (`close()`) or hands a stage to other
- * approvers (`replaceApprovers()`).
+ * Without an actor it also closes a round (`close()`), hands a stage or a flat round to
+ * other approvers (`replaceApprovers()`, `replaceFlatApprovers()`), voids rounds whose
+ * subject changed (`voidIfChanged()`) and re-checks a round's threshold
+ * (`recheckThreshold()`).
  */
 final class PendingApproval
 {
@@ -327,6 +334,96 @@ final class PendingApproval
         );
     }
 
+    /**
+     * Hand the approvable's open flat round — the round pinned with within() when one is
+     * — to other approvers, in place: replaceApprovers() for a round without stages. The
+     * approvers who already decided stay named and their decisions keep counting; the
+     * ones still to decide are replaced by `$approvers`. The round keeps its rule, quorum
+     * and absolute expiry, the replaced approvers' outstanding asks are retired, and
+     * ApprovalApproversReplaced names who joined and who left. The round never resolves
+     * here.
+     *
+     * An empty list is refused, and so is an approver who already decided the round or
+     * is excluded from deciding it, a staged or closed round, and a list under which the
+     * round could never resolve or would settle at once. Nothing changes when it is
+     * refused. Replacing records no decision and involves no actor, so as(), because(),
+     * weight() and an expiry are refused. No authorization gate runs.
+     *
+     * @param  list<Model>  $approvers
+     * @return ApprovalRequest the round, read back
+     *
+     * @throws InvalidApprovalRequestException
+     */
+    public function replaceFlatApprovers(array $approvers): ApprovalRequest
+    {
+        $subject = $this->approvable();
+
+        $this->refuseSettings('replaceFlatApprovers()', withReason: true);
+
+        return $this->manager->perform(
+            ApprovalOperation::Replace,
+            ReplaceRequestApproversAction::class,
+            fn (ReplaceRequestApproversAction $action): ApprovalRequest => $action->execute($subject, $approvers, $this->request),
+            ['subject' => $subject, 'request' => $this->request, 'stage' => null, 'approvers' => $approvers],
+        );
+    }
+
+    /**
+     * Void the approvable's open rounds — only the round pinned with within() when one is
+     * — whose subject changed since they opened: the approvable implements
+     * ProvidesApprovalFingerprint and its fingerprint no longer matches the one the round
+     * stored. A voided round closes as cancelled (its asks retired,
+     * ApprovalRequestResolved and ApprovalStatusChanged), then ApprovalRequestVoided
+     * fires. Rounds that still match, rounds opened without a fingerprint and closed
+     * rounds are left alone. Needs no actor; as(), because(), weight() and an expiry are
+     * refused.
+     *
+     * @return int the number of rounds voided
+     *
+     * @throws InvalidApprovalRequestException
+     */
+    public function voidIfChanged(): int
+    {
+        $subject = $this->approvable();
+
+        $this->refuseSettings('voidIfChanged()', withReason: true);
+
+        return $this->manager->perform(
+            ApprovalOperation::Void,
+            VoidChangedApprovalRequestsAction::class,
+            fn (VoidChangedApprovalRequestsAction $action): int => $action->execute($subject, $this->request),
+            ['subject' => $subject, 'request' => $this->request],
+        );
+    }
+
+    /**
+     * Re-check whether the approvable's open round — the round pinned with within() when
+     * one is — can still reach its threshold with the approvers who can still decide (an
+     * outstanding approver who was deleted, is excluded, or no longer passes the decision
+     * gate without a delegate who does, cannot). With `$closeAs` — cancelled to void it,
+     * rejected to fail it — an unreachable round is closed, then
+     * ApprovalThresholdUnreachable fires. Needs no actor; as(), because(), weight() and
+     * an expiry are refused.
+     *
+     * @return ThresholdVerdict|null the verdict, or null when no round is open
+     *
+     * @throws InvalidApprovalRequestException
+     * @throws InvalidStatusTransitionException when `$closeAs` is not cancelled or rejected
+     */
+    public function recheckThreshold(?ApprovalStatus $closeAs = null): ?ThresholdVerdict
+    {
+        $subject = $this->approvable();
+
+        $this->refuseSettings('recheckThreshold()', withReason: true);
+
+        return $this->manager->perform(
+            ApprovalOperation::Recheck,
+            RecheckApprovalThresholdAction::class,
+            fn (RecheckApprovalThresholdAction $action): ?ThresholdVerdict => $action->execute($subject, $this->request, $closeAs),
+            ['subject' => $subject, 'request' => $this->request, 'closeAs' => $closeAs],
+        );
+    }
+
     public function isApproved(): bool
     {
         return ApprovalChecker::isApprovedBy($this->approvable(), $this->actor());
@@ -343,6 +440,29 @@ final class PendingApproval
     public function hasPending(): bool
     {
         return ApprovalChecker::hasPending($this->approvable());
+    }
+
+    /**
+     * Refuse the actor and decision settings (and because(), when `$withReason`) before a
+     * call that involves no actor and records no decision.
+     *
+     * @throws InvalidApprovalRequestException
+     */
+    private function refuseSettings(string $call, bool $withReason): void
+    {
+        $refused = $this->decisionSettings();
+
+        if ($withReason && $this->reason !== null) {
+            array_unshift($refused, 'because()');
+        }
+
+        if ($this->actor !== null) {
+            array_unshift($refused, 'as()');
+        }
+
+        if ($refused !== []) {
+            throw InvalidApprovalRequestException::settingsOnSubjectCall($call, $refused);
+        }
     }
 
     /**

@@ -100,6 +100,47 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Excluded approvers
+    |--------------------------------------------------------------------------
+    |
+    | A class implementing RoundlyConsulting\Approvals\Interfaces\
+    | ResolvesExcludedApprovers that names the actors who may never decide on an
+    | approvable (its author, say), app-wide. It is resolved from the container.
+    | An excluded actor can neither decide nor be asked, cannot act as anyone's
+    | delegate, no delegate can decide on its behalf, and naming it as an
+    | approver is refused. Per round, exclude actors with
+    | `Approvals::request($subject)->excluding([$requester])`. Null (or blank)
+    | is no resolver; anything that does not name an implementation throws an
+    | InvalidConfigurationException.
+    |
+    */
+
+    'exclusions' => [
+        'resolver' => null,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Subject fingerprint
+    |--------------------------------------------------------------------------
+    |
+    | A subject implementing RoundlyConsulting\Approvals\Interfaces\
+    | ProvidesApprovalFingerprint has its fingerprint stored on each round when
+    | it opens, and on each decision. `on_change` says what a decision on a
+    | round whose subject changed since does: "ignore" records it (the
+    | default), "refuse" refuses it with a ChangedApprovalSubjectException, and
+    | "void" refuses it and voids the round. Whatever the setting,
+    | `Approvals::for($subject)->voidIfChanged()` voids changed rounds. Blank is
+    | the default; any other value throws an InvalidConfigurationException.
+    |
+    */
+
+    'fingerprint' => [
+        'on_change' => env('APPROVALS_FINGERPRINT_ON_CHANGE', 'ignore'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Expiry
     |--------------------------------------------------------------------------
     |

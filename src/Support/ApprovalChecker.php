@@ -82,6 +82,25 @@ final class ApprovalChecker
         return $request->isOverdue() ? ApprovalStatus::Expired : $request->status;
     }
 
+    /**
+     * Whether the subject changed since its latest open round opened: the round stored a
+     * ProvidesApprovalFingerprint value and the subject's current one differs. False when
+     * no round is open or there is nothing to compare.
+     */
+    public static function subjectChanged(Model $subject): bool
+    {
+        $model = ApprovalRequestModelResolver::class();
+
+        $round = $model::query()
+            ->whereMorphedTo('subject', $subject)
+            ->where('status', ApprovalStatus::Pending)
+            ->latest('id')
+            ->first();
+
+        return $round instanceof ApprovalRequest
+            && SubjectFingerprint::changed($round, SubjectFingerprint::current($subject));
+    }
+
     public static function progress(Model $subject): ?ApprovalProgress
     {
         return self::latestRequest($subject)?->approvalProgress();

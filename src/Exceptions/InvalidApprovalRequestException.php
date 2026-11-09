@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Approvals\Exceptions;
 
 use Illuminate\Database\Eloquent\Model;
+use RoundlyConsulting\Approvals\DataTransferObjects\NamedApprover;
 use RoundlyConsulting\Approvals\Enums\ApprovalRule;
 use RoundlyConsulting\Approvals\Models\ApprovalRequest;
 use RoundlyConsulting\Approvals\Models\ApprovalRequestStage;
@@ -181,13 +182,32 @@ final class InvalidApprovalRequestException extends ApprovalsException
     }
 
     /**
+     * An actor or decision settings were given before a call on the subject that involves
+     * no actor and records no decision (`replaceFlatApprovers()`, `voidIfChanged()`,
+     * `recheckThreshold()`). They would have been dropped, so they are refused instead.
+     *
+     * @param  list<string>  $settings  the builder methods called, e.g. `as()`, `because()`
+     */
+    public static function settingsOnSubjectCall(string $call, array $settings): self
+    {
+        $message = "{$call} involves no actor and records no decision, so [".implode(', ', $settings).'] '
+            .'cannot be set before it. It takes for() and within() only.';
+
+        if (in_array('as()', $settings, true)) {
+            $message .= " No authorization gate runs: check who may call {$call} first.";
+        }
+
+        return new self($message);
+    }
+
+    /**
      * `replaceApprovers()` was given no approvers. A stage without named approvers lets
      * any approver decide it, so an empty list is refused rather than opening the stage.
      */
     public static function noReplacementApprovers(): self
     {
         return new self(
-            'replaceApprovers() needs at least one approver: a stage without named approvers would let anyone decide it. '
+            'replaceApprovers() needs at least one approver: a stage (or round) without named approvers would let anyone decide it. '
             .'Close the round with close() to stop it instead.'
         );
     }
@@ -205,7 +225,76 @@ final class InvalidApprovalRequestException extends ApprovalsException
      */
     public static function notStaged(ApprovalRequest $request): self
     {
-        return new self('Approval request ['.$request->getKey().'] is not staged: replaceApprovers() replaces the approvers of a stage.');
+        return new self(
+            'Approval request ['.$request->getKey().'] is not staged: replaceApprovers() replaces the approvers of a stage. '
+            .'Use replaceFlatApprovers() to replace the approvers of a flat round.'
+        );
+    }
+
+    /**
+     * `replaceFlatApprovers()` reached a staged round: its approvers are named per stage.
+     */
+    public static function staged(ApprovalRequest $request): self
+    {
+        return new self(
+            'Approval request ['.$request->getKey().'] is staged: its approvers are named per stage, '
+            .'so replace them with replaceApprovers($stage, $approvers).'
+        );
+    }
+
+    /**
+     * A replacement approver already decided the flat round. Its decision stands, so it
+     * is not a pending approver that can be named again.
+     */
+    public static function alreadyDecidedRound(Model $approver, ApprovalRequest $request): self
+    {
+        return new self(
+            'The approver ['.$approver->getMorphClass().'#'.self::keyOf($approver).'] has already decided approval request ['
+            .$request->getKey().']: its decision stands, so it cannot be named as a pending approver.'
+        );
+    }
+
+    /**
+     * Under its rule, the flat round's decisions already settle it once the replacement
+     * approvers are named, so nobody would be left to decide it.
+     */
+    public static function replacementSettlesRound(ApprovalRequest $request): self
+    {
+        return new self(
+            'These approvers would settle approval request ['.$request->getKey().'] at once: under its rule the decisions '
+            .'already made decide it. Name approvers who can still change the outcome, or close the round.'
+        );
+    }
+
+    /**
+     * An actor excluded from deciding (by the round's opener or the configured exclusion
+     * resolver) was named as an approver: it could never decide.
+     */
+    public static function excludedApprover(NamedApprover $approver): self
+    {
+        return new self(
+            "The approver [{$approver->type}#{$approver->id}] is excluded from deciding on this approval, "
+            .'so it cannot be named as an approver.'
+        );
+    }
+
+    /**
+     * An actor handed to `excluding()` was not saved, so it has no key to be matched by.
+     */
+    public static function unsavedExcludedActor(Model $actor): self
+    {
+        return new self('The actor ['.$actor->getMorphClass().'] must be saved before it can be excluded from an approval request.');
+    }
+
+    /**
+     * The subject's approval fingerprint is longer than the column storing it.
+     */
+    public static function fingerprintTooLong(Model $subject, int $max): self
+    {
+        return new self(
+            'The approval fingerprint of ['.$subject->getMorphClass().'#'.self::keyOf($subject)."] is longer than {$max} characters: "
+            .'return a version number or a digest from approvalFingerprint().'
+        );
     }
 
     public static function unknownStage(ApprovalRequest $request, string $stage): self

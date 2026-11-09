@@ -32,20 +32,22 @@ final readonly class OpenWorkflowRequestAction
     /**
      * @param  array<int, Model|list<Model>>  $approvers
      * @param  CarbonInterface|null  $expiresAt  the round's deadline; null keeps the preset's own `expiry`
+     * @param  list<Model>  $excluded  actors who may not decide the round (the requester, say)
      */
-    public function execute(Model $subject, WorkflowPreset $preset, array $approvers, ?CarbonInterface $expiresAt = null): ApprovalRequest
+    public function execute(Model $subject, WorkflowPreset $preset, array $approvers, ?CarbonInterface $expiresAt = null, array $excluded = []): ApprovalRequest
     {
         $expiresAt ??= $preset->expiry === null ? null : CarbonImmutable::now()->addSeconds($preset->expiry);
 
         return $preset->isStaged()
-            ? $this->openStaged($subject, $preset, $approvers, $expiresAt)
-            : $this->openFlat($subject, $preset, $approvers, $expiresAt);
+            ? $this->openStaged($subject, $preset, $approvers, $expiresAt, $excluded)
+            : $this->openFlat($subject, $preset, $approvers, $expiresAt, $excluded);
     }
 
     /**
      * @param  array<int, Model|list<Model>>  $approvers
+     * @param  list<Model>  $excluded
      */
-    private function openFlat(Model $subject, WorkflowPreset $preset, array $approvers, ?CarbonInterface $expiresAt): ApprovalRequest
+    private function openFlat(Model $subject, WorkflowPreset $preset, array $approvers, ?CarbonInterface $expiresAt, array $excluded): ApprovalRequest
     {
         $flat = $this->flatten($approvers);
 
@@ -57,13 +59,15 @@ final readonly class OpenWorkflowRequestAction
             expiresAt: $expiresAt,
             requiredApprovers: $preset->requiredApprovers,
             workflow: $preset->name,
+            excluded: $excluded,
         ));
     }
 
     /**
      * @param  array<int, Model|list<Model>>  $approvers
+     * @param  list<Model>  $excluded
      */
-    private function openStaged(Model $subject, WorkflowPreset $preset, array $approvers, ?CarbonInterface $expiresAt): ApprovalRequest
+    private function openStaged(Model $subject, WorkflowPreset $preset, array $approvers, ?CarbonInterface $expiresAt, array $excluded): ApprovalRequest
     {
         if (count($approvers) !== count($preset->stages)) {
             throw UnknownWorkflowException::invalid(
@@ -94,6 +98,7 @@ final readonly class OpenWorkflowRequestAction
             $preset->rejectOnStageRejection,
             $expiresAt,
             $preset->name,
+            $excluded,
         );
     }
 

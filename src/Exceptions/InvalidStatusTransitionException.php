@@ -26,4 +26,15 @@ final class InvalidStatusTransitionException extends ApprovalsException
             .'approved and rejected come from its approvers\' decisions.'
         );
     }
+
+    /**
+     * A threshold re-check was asked to close an unreachable round with an outcome other
+     * than cancelled (void it) or rejected (fail it).
+     */
+    public static function notAnUnreachableOutcome(ApprovalStatus $outcome): self
+    {
+        return new self(
+            "A round that can no longer reach its threshold can only be closed as [cancelled] or [rejected], [{$outcome->value}] given."
+        );
+    }
 }

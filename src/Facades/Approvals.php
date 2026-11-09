@@ -26,6 +26,7 @@ use RoundlyConsulting\Approvals\Testing\RecordedApprovalOperation;
  * @method static PendingApprovalRequest request(Model $subject)
  * @method static WorkflowPreset preset(string $name)
  * @method static ApprovalStatus status(Model $subject)
+ * @method static bool subjectChanged(Model $subject)
  * @method static ApprovalProgress|null progress(Model $subject)
  * @method static ApprovalRequestStage|null currentStage(Model $subject)
  * @method static DelegationsHandle delegations(Model $delegator)
@@ -55,6 +56,10 @@ use RoundlyConsulting\Approvals\Testing\RecordedApprovalOperation;
  * @method static void assertNothingClosed()
  * @method static void assertApproversReplaced(Model $subject, ?string $stage = null)
  * @method static void assertNothingReplaced()
+ * @method static void assertVoided(Model $subject)
+ * @method static void assertNothingVoided()
+ * @method static void assertRechecked(Model $subject, ?ApprovalStatus $closedAs = null)
+ * @method static void assertNothingRechecked()
  *
  * @see ApprovalsManager
  * @see ApprovalsFake

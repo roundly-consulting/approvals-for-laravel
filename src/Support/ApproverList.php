@@ -45,6 +45,77 @@ final class ApproverList
     }
 
     /**
+     * The identity of an actor handed in for exclusion (or by an exclusion resolver), or
+     * null when it is not a saved model.
+     */
+    public static function identify(mixed $actor): ?NamedApprover
+    {
+        if (! $actor instanceof Model) {
+            return null;
+        }
+
+        $key = $actor->getKey();
+
+        return is_int($key) || is_string($key) ? new NamedApprover($actor->getMorphClass(), $key) : null;
+    }
+
+    /**
+     * The actors a round's opener excludes from deciding it, each once.
+     *
+     * @param  list<Model>  $actors
+     * @return list<NamedApprover>
+     *
+     * @throws InvalidApprovalRequestException when an actor is not saved
+     */
+    public static function excluded(array $actors): array
+    {
+        $excluded = [];
+
+        foreach ($actors as $actor) {
+            $identified = self::identify($actor) ?? throw InvalidApprovalRequestException::unsavedExcludedActor($actor);
+
+            if (! NamedApprover::listIncludes($excluded, $actor)) {
+                $excluded[] = $identified;
+            }
+        }
+
+        return $excluded;
+    }
+
+    /**
+     * The JSON column value for an exclusion list: NULL when nobody is excluded.
+     *
+     * @param  list<NamedApprover>  $excluded
+     * @return list<array{type: string, id: int|string}>|null
+     */
+    public static function exclusionPayload(array $excluded): ?array
+    {
+        return $excluded === []
+            ? null
+            : array_map(static fn (NamedApprover $actor): array => ['type' => $actor->type, 'id' => $actor->id], $excluded);
+    }
+
+    /**
+     * Refuse naming an approver who is excluded from deciding: it could never decide, so
+     * the round (or stage) would wait on it for nothing.
+     *
+     * @param  list<NamedApprover>  $named
+     * @param  list<NamedApprover>  $excluded
+     *
+     * @throws InvalidApprovalRequestException
+     */
+    public static function ensureNoneExcluded(array $named, array $excluded): void
+    {
+        foreach ($named as $approver) {
+            foreach ($excluded as $actor) {
+                if ($approver->is($actor)) {
+                    throw InvalidApprovalRequestException::excludedApprover($approver);
+                }
+            }
+        }
+    }
+
+    /**
      * The JSON column value for a named list: NULL when nobody was named, which leaves
      * the request (or stage) open to any approver.
      *

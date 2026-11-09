@@ -54,7 +54,7 @@ it('publishes the config file', function (): void {
 // auto-loading the directory in boot() turned both red together.
 //
 // The publish check's count and timestamped-destination halves are likewise now
-// `toPublishMigrationsTimestamped('approvals-migrations', 7)`. What remains below is the
+// `toPublishMigrationsTimestamped('approvals-migrations', 8)`. What remains below is the
 // half no preset covers.
 
 it('publishes migrations whose timestamps preserve the dependency order', function (): void {
@@ -75,6 +75,7 @@ it('publishes migrations whose timestamps preserve the dependency order', functi
         '0005_create_approval_request_stages_table.php',
         '0006_create_approval_delegations_table.php',
         '0007_change_approval_request_id_to_bigint.php',
+        '0008_add_decision_guards_to_approvals_tables.php',
     ]);
 
     // This is the host-facing other half, and the reason it stays: the structural pin

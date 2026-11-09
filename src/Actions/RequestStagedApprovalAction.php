@@ -15,6 +15,8 @@ use RoundlyConsulting\Approvals\Models\ApprovalRequest;
 use RoundlyConsulting\Approvals\Support\ApprovalRequestModelResolver;
 use RoundlyConsulting\Approvals\Support\ApprovalRequestStageModelResolver;
 use RoundlyConsulting\Approvals\Support\ApproverList;
+use RoundlyConsulting\Approvals\Support\ExcludedApprovers;
+use RoundlyConsulting\Approvals\Support\SubjectFingerprint;
 
 final class RequestStagedApprovalAction
 {
@@ -23,7 +25,12 @@ final class RequestStagedApprovalAction
      * approvers it names, and only they (or their delegates) may decide it while it is
      * open; a stage opened without names may be decided by any approver.
      *
+     * The actors in `$excluded`, and those the configured exclusion resolver names, may
+     * never decide it, so naming one of them on a stage is refused. When the subject
+     * provides an approval fingerprint, the round stores it.
+     *
      * @param  list<StageDefinition>  $stages
+     * @param  list<Model>  $excluded
      */
     public function execute(
         Model $subject,
@@ -31,14 +38,19 @@ final class RequestStagedApprovalAction
         bool $rejectOnStageRejection = true,
         ?CarbonInterface $expiresAt = null,
         ?string $workflow = null,
+        array $excluded = [],
     ): ApprovalRequest {
         // Name (and validate) every stage before anything is written.
         $named = [];
         $required = [];
+        $excludedActors = ApproverList::excluded($excluded);
+        $refused = [...$excludedActors, ...app(ExcludedApprovers::class)->for($subject, null)];
 
         foreach ($stages as $index => $definition) {
             $named[$index] = ApproverList::name($definition->approvers, $subject);
             $required[$index] = ApproverList::required($named[$index], $definition->requiredApprovers);
+
+            ApproverList::ensureNoneExcluded($named[$index], $refused);
 
             ApproverList::ensureReachable($definition->rule, $definition->quorum, $required[$index], $named[$index]);
         }
@@ -54,6 +66,17 @@ final class RequestStagedApprovalAction
         $request->staged = true;
         $request->reject_on_stage_rejection = $rejectOnStageRejection;
         $request->workflow = $workflow;
+
+        // Only columns with a value are written, so a host that has not run the 2.2.0
+        // migration keeps opening rounds until it uses the guards.
+        if ($excludedActors !== []) {
+            $request->excluded_approvers = ApproverList::exclusionPayload($excludedActors);
+        }
+
+        if (($fingerprint = SubjectFingerprint::current($subject)) !== null) {
+            $request->subject_fingerprint = $fingerprint;
+        }
+
         $request->expires_at = $expiresAt === null
             ? null
             : CarbonImmutable::instance($expiresAt->toDateTimeImmutable());

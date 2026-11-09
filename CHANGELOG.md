@@ -6,6 +6,47 @@ All notable changes to `approvals-for-laravel` are documented in this file. The 
 
 ## Unreleased
 
+**Upgrade note:** the new guards need the new migration `0008_add_decision_guards_to_approvals_tables`
+(`php artisan vendor:publish --tag="approvals-migrations"` then `php artisan migrate`). It only adds
+nullable columns. Until it runs, everything else keeps working: the package writes those columns
+only when a guard is in use (an exclusion list, or a subject that provides a fingerprint).
+
+### Added
+
+- Exclude actors from deciding. `Approvals::request($subject)->excluding([$requester])` excludes them
+  from one round (also after `workflow()`), and `approvals.exclusions.resolver` names a
+  `ResolvesExcludedApprovers` class that excludes actors app-wide (an approvable's author, say). An
+  excluded actor can neither decide nor be asked, cannot act as a delegate, and no delegate can
+  decide for it (`UnauthorizedApprovalException`). Naming one as an approver is refused.
+- `ProvidesApprovalFingerprint`: a subject that implements it has its fingerprint stored on each
+  round when it opens and on each decision, so every decision records the version it was made on.
+  `Approvals::subjectChanged($subject)` tells whether the open round's subject changed, and
+  `Approvals::for($subject)->voidIfChanged()` voids such rounds (closed as cancelled, then
+  `ApprovalRequestVoided`). `approvals.fingerprint.on_change` (`ignore` by default, `refuse`,
+  `void`) refuses decisions on a changed subject with `ChangedApprovalSubjectException`, and voids
+  the round under `void`.
+- `Approvals::for($subject)->replaceFlatApprovers($approvers)` replaces the pending approvers of a
+  flat round in place, as `replaceApprovers()` does for a stage.
+- `Approvals::for($subject)->recheckThreshold(?$closeAs)` tells whether the open round can still
+  reach its threshold with the approvers who can still decide (not deleted, not excluded, passing
+  the decision gate or delegating to someone who does), as a `ThresholdVerdict`. With
+  `ApprovalStatus::Cancelled` or `Rejected` it closes an unreachable round and fires
+  `ApprovalThresholdUnreachable`.
+- `ApprovalApproversReplaced` fires for every replacement, flat or staged, with the approvers added
+  and removed.
+- `Approvals::fake()`: `assertVoided()` / `assertNothingVoided()`, `assertRechecked()` /
+  `assertNothingRechecked()`, and the `ApprovalOperation::Void` and `Recheck` cases.
+
+### Changed
+
+- The guards above take the round's row lock, as decisions and stage replacements do, so a decision
+  racing a flat replacement, a void or a closing re-check is refused instead of recorded.
+
+### Planned for the next major
+
+- `approvals.fingerprint.on_change` defaults to `refuse`, so a subject that provides a fingerprint
+  never takes a decision on a version its round did not open on.
+
 ## 2.1.0 - 2026-11-08
 
 ### Added

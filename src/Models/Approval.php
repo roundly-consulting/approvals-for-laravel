@@ -34,6 +34,7 @@ use RoundlyConsulting\Approvals\Support\DecisionScope;
  * @property int|null $decided_by_id
  * @property string|null $decided_by_type
  * @property int $weight
+ * @property string|null $subject_fingerprint
  * @property CarbonImmutable|null $decided_at
  * @property CarbonImmutable|null $expires_at
  * @property CarbonInterface|null $created_at

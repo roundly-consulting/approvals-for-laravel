@@ -33,6 +33,14 @@ final readonly class NamedApprover
     }
 
     /**
+     * Whether `$other` identifies the same actor (the weight aside).
+     */
+    public function is(self $other): bool
+    {
+        return $this->type === $other->type && (string) $this->id === (string) $other->id;
+    }
+
+    /**
      * Whether `$decision` was recorded with this approver as its actor.
      */
     public function isActorOf(Approval $decision): bool

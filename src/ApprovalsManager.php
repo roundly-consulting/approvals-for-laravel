@@ -77,6 +77,16 @@ class ApprovalsManager
     }
 
     /**
+     * Whether the subject changed since its open round opened (its
+     * ProvidesApprovalFingerprint value no longer matches the round's). Void such rounds
+     * with `for($subject)->voidIfChanged()`.
+     */
+    public function subjectChanged(Model $subject): bool
+    {
+        return ApprovalChecker::subjectChanged($subject);
+    }
+
+    /**
      * How far the subject's latest request has progressed, if it has one.
      */
     public function progress(Model $subject): ?ApprovalProgress

@@ -41,6 +41,8 @@ function runApprovalsMigrations(bool $upgrade = true): void
         $migrations[] = '0007_change_approval_request_id_to_bigint';
     }
 
+    $migrations[] = '0008_add_decision_guards_to_approvals_tables';
+
     foreach ($migrations as $migration) {
         (require __DIR__.'/../../database/migrations/'.$migration.'.php')->up();
     }
@@ -121,7 +123,8 @@ it('emits the frozen bigint morph schema byte-for-byte', function (): void {
         .'"decided_at" datetime, "expires_at" datetime, '
         .'"created_at" datetime, "updated_at" datetime, "deleted_at" datetime, '
         .'"decided_by_type" varchar, "decided_by_id" integer, '
-        .'"weight" integer not null default \'1\', "approval_request_stage_id" integer)'
+        .'"weight" integer not null default \'1\', "approval_request_stage_id" integer, '
+        .'"subject_fingerprint" varchar)'
     );
 
     expect(emittedApprovalsTable('approval_requests'))->toBe(
@@ -131,7 +134,8 @@ it('emits the frozen bigint morph schema byte-for-byte', function (): void {
         .'"status" varchar not null default \'pending\', "resolved_at" datetime, '
         .'"expires_at" datetime, "created_at" datetime, "updated_at" datetime, '
         .'"deleted_at" datetime, "staged" tinyint(1) not null default \'0\', '
-        .'"reject_on_stage_rejection" tinyint(1) not null default \'1\', "workflow" varchar)'
+        .'"reject_on_stage_rejection" tinyint(1) not null default \'1\', "workflow" varchar, '
+        .'"excluded_approvers" text, "subject_fingerprint" varchar)'
     );
 
     expect(emittedApprovalsTable('approval_delegations'))->toBe(

@@ -8,6 +8,7 @@ use Closure;
 use Illuminate\Database\Eloquent\Model;
 use PHPUnit\Framework\Assert;
 use RoundlyConsulting\Approvals\ApprovalsManager;
+use RoundlyConsulting\Approvals\DataTransferObjects\ThresholdVerdict;
 use RoundlyConsulting\Approvals\Enums\ApprovalOperation;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Support\MorphType;
@@ -223,8 +224,9 @@ final class ApprovalsFake extends ApprovalsManager
     }
 
     /**
-     * Assert the pending approvers of one of the subject's stages were replaced
-     * (`->replaceApprovers()`) — of the stage with that name when given.
+     * Assert the pending approvers of one of the subject's rounds were replaced
+     * (`->replaceApprovers()` or `->replaceFlatApprovers()`) — of the stage with that name
+     * when given.
      */
     public function assertApproversReplaced(Model $subject, ?string $stage = null): void
     {
@@ -245,6 +247,60 @@ final class ApprovalsFake extends ApprovalsManager
     public function assertNothingReplaced(): void
     {
         $this->assertNone(ApprovalOperation::Replace, 'Expected no approvers to be replaced, but %d replacement(s) were recorded.');
+    }
+
+    /**
+     * Assert a void of the subject's changed rounds (`->voidIfChanged()`) voided at least
+     * one round.
+     */
+    public function assertVoided(Model $subject): void
+    {
+        $matches = array_filter(
+            $this->recorded(ApprovalOperation::Void),
+            static fn (RecordedApprovalOperation $recorded): bool => $recorded->involves('subject', $subject)
+                && is_int($recorded->result) && $recorded->result > 0,
+        );
+
+        Assert::assertNotEmpty($matches, 'Expected an approval round of the subject to be voided, but none was.');
+    }
+
+    /**
+     * Assert no `->voidIfChanged()` call voided a round.
+     */
+    public function assertNothingVoided(): void
+    {
+        $voided = 0;
+
+        foreach ($this->recorded(ApprovalOperation::Void) as $recorded) {
+            $voided += is_int($recorded->result) ? $recorded->result : 0;
+        }
+
+        Assert::assertSame(0, $voided, "Expected no approval round to be voided, but {$voided} were.");
+    }
+
+    /**
+     * Assert the threshold of the subject's round was re-checked (`->recheckThreshold()`)
+     * — and, with `$closedAs`, that the re-check closed it with that outcome.
+     */
+    public function assertRechecked(Model $subject, ?ApprovalStatus $closedAs = null): void
+    {
+        $matches = array_filter(
+            $this->recorded(ApprovalOperation::Recheck),
+            static fn (RecordedApprovalOperation $recorded): bool => $recorded->involves('subject', $subject)
+                && ($closedAs === null || ($recorded->result instanceof ThresholdVerdict && $recorded->result->closedAs === $closedAs)),
+        );
+
+        Assert::assertNotEmpty(
+            $matches,
+            $closedAs === null
+                ? 'Expected the threshold of an approval round of the subject to be re-checked, but none was.'
+                : "Expected a re-check to close an approval round of the subject as [{$closedAs->value}], but none did.",
+        );
+    }
+
+    public function assertNothingRechecked(): void
+    {
+        $this->assertNone(ApprovalOperation::Recheck, 'Expected no approval threshold to be re-checked, but %d re-check(s) were recorded.');
     }
 
     private function assertDecision(ApprovalOperation $operation, string $verb, Model $approvable, ?Model $actor): void

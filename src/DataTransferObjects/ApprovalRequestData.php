@@ -14,6 +14,7 @@ final readonly class ApprovalRequestData
      * @param  list<Model>  $approvers  the named approvers; only they may decide (none named: anyone may)
      * @param  int|null  $requiredApprovers  the approvals needed; defaults to one per named approver
      * @param  string|null  $workflow  the preset the request was opened from, if any
+     * @param  list<Model>  $excluded  actors who may not decide the request (the requester, say)
      */
     public function __construct(
         public Model $subject,
@@ -23,5 +24,6 @@ final readonly class ApprovalRequestData
         public ?CarbonInterface $expiresAt = null,
         public ?int $requiredApprovers = null,
         public ?string $workflow = null,
+        public array $excluded = [],
     ) {}
 }

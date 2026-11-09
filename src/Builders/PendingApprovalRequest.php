@@ -24,6 +24,7 @@ use RoundlyConsulting\Approvals\Models\ApprovalRequest;
  *     Approvals::request($invoice)->stages([...])->continueOnRejection()->open();
  *     Approvals::request($invoice)->workflow('purchase')->open([$a, [$b, $c]]);
  *     Approvals::request($invoice)->expiresIn(3600)->workflow('purchase')->open([$a, $b]);
+ *     Approvals::request($invoice)->excluding([$requester])->from([$a, $b])->open();
  */
 final class PendingApprovalRequest
 {
@@ -40,6 +41,9 @@ final class PendingApprovalRequest
     private bool $rejectOnStageRejection = true;
 
     private ?CarbonInterface $expiresAt = null;
+
+    /** @var list<Model> */
+    private array $excluded = [];
 
     /**
      * The settings made here that a workflow preset defines itself, by method name in
@@ -140,8 +144,24 @@ final class PendingApprovalRequest
     }
 
     /**
+     * Exclude these actors from deciding the round: the requester, say. An excluded actor
+     * can neither decide nor be asked, cannot act as anyone's delegate, and no delegate
+     * can decide on its behalf; naming one as an approver is refused. Carries over to
+     * workflow(). Each call replaces the list.
+     *
+     * @param  list<Model>  $actors
+     */
+    public function excluding(array $actors): self
+    {
+        $this->excluded = $actors;
+
+        return $this;
+    }
+
+    /**
      * Open the request from a named workflow preset instead; its approvers go to open().
-     * An expiry already set here carries over and replaces the preset's own `expiry`.
+     * An expiry already set here carries over and replaces the preset's own `expiry`, and
+     * so do the actors excluded with excluding().
      *
      * The preset defines the rule, quorum, stages and stage rejection itself, so a call
      * to from(), rule(), any(), quorum(), weighted(), stages() or continueOnRejection()
@@ -155,7 +175,7 @@ final class PendingApprovalRequest
             throw InvalidApprovalRequestException::definedByWorkflow($name, array_keys($this->presetDefined));
         }
 
-        return new PendingWorkflowRequest($this->manager, $this->subject, $name, $this->expiresAt);
+        return new PendingWorkflowRequest($this->manager, $this->subject, $name, $this->expiresAt, $this->excluded);
     }
 
     public function open(): ApprovalRequest
@@ -168,7 +188,10 @@ final class PendingApprovalRequest
             'subject' => $this->subject,
             'staged' => $this->stages !== [],
             'workflow' => null,
+            'excluded' => $this->excluded,
         ];
+
+        $excluded = $this->excluded;
 
         if ($this->stages !== []) {
             $stages = $this->stages;
@@ -181,6 +204,8 @@ final class PendingApprovalRequest
                     $stages,
                     $this->rejectOnStageRejection,
                     $this->expiresAt,
+                    null,
+                    $excluded,
                 ),
                 $context,
             );
@@ -192,6 +217,7 @@ final class PendingApprovalRequest
             rule: $this->rule,
             quorum: $this->quorum,
             expiresAt: $this->expiresAt,
+            excluded: $excluded,
         );
 
         return $this->manager->perform(

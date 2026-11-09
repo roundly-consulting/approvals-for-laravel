@@ -48,6 +48,12 @@ enum ApprovalOperation: string
     /** A subject's open request was closed from outside, as cancelled or expired. */
     case Close = 'close';
 
-    /** The pending approvers of a round's open stage were replaced. */
+    /** The pending approvers of a round's open stage, or of a flat round, were replaced. */
     case Replace = 'replace';
+
+    /** A subject's changed rounds were voided (`voidIfChanged()`). */
+    case Void = 'void';
+
+    /** A round's threshold was re-checked (`recheckThreshold()`). */
+    case Recheck = 'recheck';
 }

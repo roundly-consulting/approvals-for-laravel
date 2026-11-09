@@ -23,7 +23,8 @@ final class RequestApprovalAction
      * Ask the actor for a decision: record a pending decision in its slot (the given
      * request, the approvable's latest open request, or standalone). When the actor
      * already holds a live decision there, that decision is returned unchanged. A closed
-     * round refuses it (ClosedApprovalRequestException).
+     * round refuses it (ClosedApprovalRequestException), and so does an actor excluded
+     * from deciding (UnauthorizedApprovalException).
      */
     public function execute(
         Model $actor,
@@ -38,6 +39,7 @@ final class RequestApprovalAction
 
         $target = $this->decisionTarget($actor, $approvable, $request, actsForOthers: false);
 
+        $this->guardSubjectVersion($target);
         $this->lapseOverdueDecision($target);
 
         $asked = null;
@@ -47,6 +49,7 @@ final class RequestApprovalAction
 
             $this->ensureRoundStillOpen($target->request);
             $this->ensureStillNamed($target);
+            $fingerprint = $this->ensureSubjectUnchanged($target);
 
             $live = app(LiveDecisions::class)->in($target);
 
@@ -55,6 +58,10 @@ final class RequestApprovalAction
             }
 
             $approval = $this->newApprovalFor($target);
+
+            if ($fingerprint !== null) {
+                $approval->subject_fingerprint = $fingerprint;
+            }
 
             if ($data->reason !== null) {
                 $approval->reason = $data->reason;
