@@ -4,7 +4,7 @@ All notable changes to `approvals-for-laravel` are documented in this file. The 
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 2.2.0 - 2026-11-09
 
 **Upgrade note:** the new guards need the new migration `0008_add_decision_guards_to_approvals_tables`
 (`php artisan vendor:publish --tag="approvals-migrations"` then `php artisan migrate`). It only adds
