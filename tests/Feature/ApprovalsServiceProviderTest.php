@@ -7,8 +7,10 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\ServiceProvider;
 use RoundlyConsulting\Approvals\ApprovalsServiceProvider;
 use RoundlyConsulting\Approvals\Commands\ExpireApprovalsCommand;
+use RoundlyConsulting\Approvals\Commands\ExpireConfirmationsCommand;
 use RoundlyConsulting\Approvals\Facades\Approvals;
 use RoundlyConsulting\Approvals\Models\Approval;
+use RoundlyConsulting\Approvals\Models\ApprovalConfirmation;
 use RoundlyConsulting\Approvals\Models\ApprovalDelegation;
 use RoundlyConsulting\Approvals\Models\ApprovalRequest;
 use RoundlyConsulting\Approvals\Models\ApprovalRequestStage;
@@ -18,6 +20,8 @@ it('merges the package config', function (): void {
         ->and(config('approvals.request_model'))->toBe(ApprovalRequest::class)
         ->and(config('approvals.stage_model'))->toBe(ApprovalRequestStage::class)
         ->and(config('approvals.delegation_model'))->toBe(ApprovalDelegation::class)
+        ->and(config('approvals.confirmation_model'))->toBe(ApprovalConfirmation::class)
+        ->and(config('approvals.confirmations.expiry'))->toBe(900)
         // `default_status` was documented as the status of a toggled approval but never
         // applied; a toggle always approves, so the key is gone rather than kept as a lie.
         ->and(config()->has('approvals.default_status'))->toBeFalse();
@@ -33,11 +37,17 @@ it('registers the expire command', function (): void {
         ->and(Artisan::all()['approvals:expire'])->toBeInstanceOf(ExpireApprovalsCommand::class);
 });
 
+it('registers the expire-confirmations command', function (): void {
+    expect(Artisan::all())->toHaveKey('approvals:expire-confirmations')
+        ->and(Artisan::all()['approvals:expire-confirmations'])->toBeInstanceOf(ExpireConfirmationsCommand::class);
+});
+
 it('registers every publish tag', function (string $tag): void {
     expect(ServiceProvider::pathsToPublish(ApprovalsServiceProvider::class, $tag))->not->toBeEmpty();
 })->with([
     'approvals-config',
     'approvals-migrations',
+    'approvals-translations',
 ]);
 
 it('publishes the config file', function (): void {
@@ -54,7 +64,7 @@ it('publishes the config file', function (): void {
 // auto-loading the directory in boot() turned both red together.
 //
 // The publish check's count and timestamped-destination halves are likewise now
-// `toPublishMigrationsTimestamped('approvals-migrations', 8)`. What remains below is the
+// `toPublishMigrationsTimestamped('approvals-migrations', 9)`. What remains below is the
 // half no preset covers.
 
 it('publishes migrations whose timestamps preserve the dependency order', function (): void {
@@ -76,6 +86,7 @@ it('publishes migrations whose timestamps preserve the dependency order', functi
         '0006_create_approval_delegations_table.php',
         '0007_change_approval_request_id_to_bigint.php',
         '0008_add_decision_guards_to_approvals_tables.php',
+        '0009_create_approval_confirmations_table.php',
     ]);
 
     // This is the host-facing other half, and the reason it stays: the structural pin

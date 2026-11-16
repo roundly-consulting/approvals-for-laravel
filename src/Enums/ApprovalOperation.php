@@ -56,4 +56,16 @@ enum ApprovalOperation: string
 
     /** A round's threshold was re-checked (`recheckThreshold()`). */
     case Recheck = 'recheck';
+
+    /** A single-use confirmation was asked of a person (`confirmation()->request()`). */
+    case RequestConfirmation = 'request_confirmation';
+
+    /** A person confirmed a confirmation (`confirm()`). */
+    case Confirm = 'confirm';
+
+    /** A person declined a confirmation (`decline()`). */
+    case Decline = 'decline';
+
+    /** Overdue confirmations were lapsed (`expireConfirmations()`). */
+    case ExpireConfirmations = 'expire_confirmations';
 }

@@ -3,10 +3,12 @@
 declare(strict_types=1);
 
 use RoundlyConsulting\Approvals\Models\Approval;
+use RoundlyConsulting\Approvals\Models\ApprovalConfirmation;
 use RoundlyConsulting\Approvals\Models\ApprovalDelegation;
 use RoundlyConsulting\Approvals\Models\ApprovalRequest;
 use RoundlyConsulting\Approvals\Models\ApprovalRequestStage;
 use RoundlyConsulting\Approvals\Tests\Fixtures\CustomApproval;
+use RoundlyConsulting\Approvals\Tests\Fixtures\CustomApprovalConfirmation;
 use RoundlyConsulting\Approvals\Tests\Fixtures\CustomApprovalDelegation;
 use RoundlyConsulting\Approvals\Tests\Fixtures\CustomApprovalRequest;
 use RoundlyConsulting\Approvals\Tests\Fixtures\CustomApprovalRequestStage;
@@ -26,6 +28,10 @@ it('builds the configured approval and request models', function (): void {
 it('builds the configured stage and delegation models', function (): void {
     expect(ApprovalRequestStage::factory()->create()::class)->toBe(CustomApprovalRequestStage::class)
         ->and(ApprovalDelegation::factory()->create()::class)->toBe(CustomApprovalDelegation::class);
+});
+
+it('builds the configured confirmation model', function (): void {
+    expect(ApprovalConfirmation::factory()->create()::class)->toBe(CustomApprovalConfirmation::class);
 });
 
 it('fires the host model events for the request a stage factory creates', function (): void {

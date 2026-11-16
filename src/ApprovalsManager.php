@@ -7,18 +7,26 @@ namespace RoundlyConsulting\Approvals;
 use Carbon\CarbonInterface;
 use Closure;
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use RoundlyConsulting\Approvals\Actions\ConfirmAction;
+use RoundlyConsulting\Approvals\Actions\DeclineAction;
 use RoundlyConsulting\Approvals\Actions\ExpireApprovalsAction;
+use RoundlyConsulting\Approvals\Actions\ExpireConfirmationsAction;
 use RoundlyConsulting\Approvals\Builders\DelegationsHandle;
 use RoundlyConsulting\Approvals\Builders\PendingApproval;
 use RoundlyConsulting\Approvals\Builders\PendingApprovalRequest;
+use RoundlyConsulting\Approvals\Builders\PendingConfirmation;
 use RoundlyConsulting\Approvals\DataTransferObjects\ApprovalProgress;
 use RoundlyConsulting\Approvals\DataTransferObjects\WorkflowPreset;
 use RoundlyConsulting\Approvals\Enums\ApprovalOperation;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
+use RoundlyConsulting\Approvals\Exceptions\ConfirmationRefusedException;
+use RoundlyConsulting\Approvals\Models\ApprovalConfirmation;
 use RoundlyConsulting\Approvals\Models\ApprovalDelegation;
 use RoundlyConsulting\Approvals\Models\ApprovalRequestStage;
 use RoundlyConsulting\Approvals\Support\ApprovalChecker;
+use RoundlyConsulting\Approvals\Support\ApprovalConfirmationModelResolver;
 use RoundlyConsulting\Approvals\Support\DelegationResolver;
 use RoundlyConsulting\Approvals\Support\WorkflowResolver;
 
@@ -132,6 +140,86 @@ class ApprovalsManager
             ApprovalOperation::Expire,
             ExpireApprovalsAction::class,
             static fn (ExpireApprovalsAction $action): int => $action->execute($now, $subjectType),
+            ['now' => $now, 'subjectType' => $subjectType],
+        );
+    }
+
+    /**
+     * Begin asking one named person to confirm one exact action on the subject, once:
+     * `confirmation($subject)->payload($hash)->by($person)->expiresIn(...)->request()`.
+     */
+    public function confirmation(Model $subject): PendingConfirmation
+    {
+        return new PendingConfirmation($this, $subject);
+    }
+
+    /**
+     * Confirm the confirmation as `$person` for the action whose payload hash is `$hash`.
+     * Succeeds only for the named person and a matching hash, while it is pending and
+     * unexpired, and uses it up atomically: of two concurrent confirms exactly one wins.
+     *
+     * @throws ConfirmationRefusedException `not_the_person`, `used`, `declined`, `expired` or `mismatch`
+     */
+    public function confirm(ApprovalConfirmation $confirmation, Model $person, string $hash): ApprovalConfirmation
+    {
+        return $this->perform(
+            ApprovalOperation::Confirm,
+            ConfirmAction::class,
+            static fn (ConfirmAction $action): ApprovalConfirmation => $action->execute($confirmation, $person, $hash),
+            ['confirmation' => $confirmation, 'person' => $person, 'reason' => null],
+        );
+    }
+
+    /**
+     * Decline the confirmation as `$person`, with an optional reason. Only the named
+     * person can, while it is pending and unexpired; it uses the confirmation up.
+     *
+     * @throws ConfirmationRefusedException `not_the_person`, `used`, `declined` or `expired`
+     */
+    public function decline(ApprovalConfirmation $confirmation, Model $person, ?string $reason = null): ApprovalConfirmation
+    {
+        return $this->perform(
+            ApprovalOperation::Decline,
+            DeclineAction::class,
+            static fn (DeclineAction $action): ApprovalConfirmation => $action->execute($confirmation, $person, $reason),
+            ['confirmation' => $confirmation, 'person' => $person, 'reason' => $reason],
+        );
+    }
+
+    /**
+     * The confirmations waiting on the person: pending and not past their expiry.
+     *
+     * @return Builder<ApprovalConfirmation>
+     */
+    public function pendingConfirmationsFor(Model $person): Builder
+    {
+        return ApprovalConfirmationModelResolver::class()::query()->pendingFor($person);
+    }
+
+    /**
+     * Every confirmation about the subject, whatever its status; chain `->pending()` for
+     * the ones still open to an answer.
+     *
+     * @return Builder<ApprovalConfirmation>
+     */
+    public function confirmationsFor(Model $subject): Builder
+    {
+        return ApprovalConfirmationModelResolver::class()::query()->forSubject($subject);
+    }
+
+    /**
+     * Lapse pending confirmations whose expiry is at or before the moment (now when
+     * omitted) — only those about one subject type (a model class or its morph alias)
+     * when given — firing ApprovalConfirmationExpired for each.
+     *
+     * @return int the number of confirmations expired
+     */
+    public function expireConfirmations(?CarbonInterface $now = null, ?string $subjectType = null): int
+    {
+        return $this->perform(
+            ApprovalOperation::ExpireConfirmations,
+            ExpireConfirmationsAction::class,
+            static fn (ExpireConfirmationsAction $action): int => $action->execute($now, $subjectType),
             ['now' => $now, 'subjectType' => $subjectType],
         );
     }

@@ -3,8 +3,10 @@
 declare(strict_types=1);
 
 use RoundlyConsulting\Approvals\Exceptions\InvalidApprovalModelException;
+use RoundlyConsulting\Approvals\Models\ApprovalConfirmation;
 use RoundlyConsulting\Approvals\Models\ApprovalDelegation;
 use RoundlyConsulting\Approvals\Models\ApprovalRequestStage;
+use RoundlyConsulting\Approvals\Support\ApprovalConfirmationModelResolver;
 use RoundlyConsulting\Approvals\Support\ApprovalDelegationModelResolver;
 use RoundlyConsulting\Approvals\Support\ApprovalRequestModelResolver;
 use RoundlyConsulting\Approvals\Support\ApprovalRequestStageModelResolver;
@@ -69,3 +71,18 @@ it('rejects a non-string delegation model', function (): void {
     expect(fn () => ApprovalDelegationModelResolver::class())
         ->toThrow(InvalidApprovalModelException::class);
 });
+
+it('resolves the default confirmation model', function (): void {
+    expect(ApprovalConfirmationModelResolver::class())->toBe(ApprovalConfirmation::class);
+});
+
+it('rejects a confirmation model that is not a confirmation', function (mixed $configured): void {
+    config()->set('approvals.confirmation_model', $configured);
+
+    expect(fn () => ApprovalConfirmationModelResolver::class())
+        ->toThrow(InvalidApprovalModelException::class);
+})->with([
+    'another eloquent model' => [ActorTestModel::class],
+    'not a model' => [stdClass::class],
+    'not a string' => [123],
+]);

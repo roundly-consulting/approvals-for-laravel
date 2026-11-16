@@ -5,16 +5,19 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Approvals\Facades;
 
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Facade;
 use RoundlyConsulting\Approvals\ApprovalsManager;
 use RoundlyConsulting\Approvals\Builders\DelegationsHandle;
 use RoundlyConsulting\Approvals\Builders\PendingApproval;
 use RoundlyConsulting\Approvals\Builders\PendingApprovalRequest;
+use RoundlyConsulting\Approvals\Builders\PendingConfirmation;
 use RoundlyConsulting\Approvals\DataTransferObjects\ApprovalProgress;
 use RoundlyConsulting\Approvals\DataTransferObjects\WorkflowPreset;
 use RoundlyConsulting\Approvals\Enums\ApprovalOperation;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
+use RoundlyConsulting\Approvals\Models\ApprovalConfirmation;
 use RoundlyConsulting\Approvals\Models\ApprovalDelegation;
 use RoundlyConsulting\Approvals\Models\ApprovalRequestStage;
 use RoundlyConsulting\Approvals\Testing\ApprovalsFake;
@@ -32,6 +35,12 @@ use RoundlyConsulting\Approvals\Testing\RecordedApprovalOperation;
  * @method static DelegationsHandle delegations(Model $delegator)
  * @method static ApprovalDelegation|null delegationFor(Model $delegate, ?CarbonInterface $at = null)
  * @method static int expire(?CarbonInterface $now = null, ?string $subjectType = null)
+ * @method static PendingConfirmation confirmation(Model $subject)
+ * @method static ApprovalConfirmation confirm(ApprovalConfirmation $confirmation, Model $person, string $hash)
+ * @method static ApprovalConfirmation decline(ApprovalConfirmation $confirmation, Model $person, ?string $reason = null)
+ * @method static Builder<ApprovalConfirmation> pendingConfirmationsFor(Model $person)
+ * @method static Builder<ApprovalConfirmation> confirmationsFor(Model $subject)
+ * @method static int expireConfirmations(?CarbonInterface $now = null, ?string $subjectType = null)
  * @method static ApprovalsFake fake()
  * @method static list<RecordedApprovalOperation> recorded(?ApprovalOperation $operation = null)
  * @method static void assertApproved(Model $approvable, ?Model $by = null)
@@ -60,6 +69,14 @@ use RoundlyConsulting\Approvals\Testing\RecordedApprovalOperation;
  * @method static void assertNothingVoided()
  * @method static void assertRechecked(Model $subject, ?ApprovalStatus $closedAs = null)
  * @method static void assertNothingRechecked()
+ * @method static void assertConfirmationRequested(Model $subject, ?Model $person = null)
+ * @method static void assertNoConfirmationsRequested()
+ * @method static void assertConfirmed(Model $subject, ?Model $by = null)
+ * @method static void assertNothingConfirmed()
+ * @method static void assertDeclined(Model $subject, ?Model $by = null)
+ * @method static void assertNothingDeclined()
+ * @method static void assertConfirmationsExpired(?int $count = null)
+ * @method static void assertNoConfirmationsExpired()
  *
  * @see ApprovalsManager
  * @see ApprovalsFake

@@ -12,6 +12,7 @@ use RoundlyConsulting\Approvals\Facades\Approvals;
 use RoundlyConsulting\Approvals\Tests\ActorTestModel;
 use RoundlyConsulting\Approvals\Tests\DeploymentTestModel;
 use RoundlyConsulting\Approvals\Tests\Fixtures\CustomApproval;
+use RoundlyConsulting\Approvals\Tests\Fixtures\CustomApprovalConfirmation;
 use RoundlyConsulting\Approvals\Tests\Fixtures\CustomApprovalDelegation;
 use RoundlyConsulting\Approvals\Tests\Fixtures\CustomApprovalRequest;
 use RoundlyConsulting\Approvals\Tests\Fixtures\CustomApprovalRequestStage;
@@ -99,6 +100,30 @@ it('honours a host delegation model through the delegation flow', function (): v
         return [
             $delegation,
             ...$delegator->approvalDelegations()->get()->all(),
+        ];
+    });
+});
+
+/**
+ * Confirmations are created, answered and listed by the package on the host's behalf: the
+ * request, the confirm (which reads the row back) and both listing paths must all hand
+ * back the host class.
+ */
+it('honours a host confirmation model through the confirmation flow', function (): void {
+    expect('approvals.confirmation_model')->toHonourModelSwap(CustomApprovalConfirmation::class, function (): array {
+        $release = ReleaseTestModel::query()->create();
+        $person = ActorTestModel::query()->create();
+
+        $pending = Approvals::confirmation($release)->payload('hash-a')->by($person)->request();
+        $listed = Approvals::pendingConfirmationsFor($person)->get()->all();
+
+        $answered = Approvals::confirmation($release)->payload('hash-b')->by($person)->request();
+
+        return [
+            $pending,
+            ...$listed,
+            Approvals::confirm($answered, $person, 'hash-b'),
+            ...Approvals::confirmationsFor($release)->get()->all(),
         ];
     });
 });

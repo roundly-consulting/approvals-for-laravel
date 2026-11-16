@@ -133,11 +133,24 @@ it('keeps the about section rendering on a malformed host config (strict config)
     config()->set('approvals.authorization.ability', ['decide']);
     config()->set('approvals.expiry.default', 'a day');
     config()->set('approvals.workflows', 'payout');
+    config()->set('approvals.confirmations.expiry', 'soon');
 
     Artisan::call('about', ['--only' => 'approvals']);
 
     expect(Artisan::output())
         ->toMatch('/Ability \.+ INVALID/')
         ->toMatch('/Default expiry \.+ INVALID/')
+        ->toMatch('/Confirmation expiry \.+ INVALID/')
         ->toMatch('/Workflow presets \.+ INVALID/');
 });
+
+it('reports the confirmation expiry in the about section', function (mixed $configured, string $shown): void {
+    config()->set('approvals.confirmations.expiry', $configured);
+
+    Artisan::call('about', ['--only' => 'approvals']);
+
+    expect(Artisan::output())->toMatch('/Confirmation expiry \.+ '.$shown.'/');
+})->with([
+    'the default' => [900, '900s'],
+    'never' => [null, 'NEVER'],
+]);

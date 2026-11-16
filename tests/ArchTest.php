@@ -5,6 +5,7 @@ declare(strict_types=1);
 use RoundlyConsulting\Approvals\ApprovalsManager;
 use RoundlyConsulting\Approvals\Exceptions\ApprovalsException;
 use RoundlyConsulting\Approvals\Models\Approval;
+use RoundlyConsulting\Approvals\Models\ApprovalConfirmation;
 use RoundlyConsulting\Approvals\Models\ApprovalDelegation;
 use RoundlyConsulting\Approvals\Models\ApprovalRequest;
 use RoundlyConsulting\Approvals\Models\ApprovalRequestStage;
@@ -18,7 +19,7 @@ use RoundlyConsulting\Testing\Arch\ArchPresets;
 ArchPresets::strictTypes('RoundlyConsulting\Approvals');
 
 /**
- * The deliberate extension points are exempt: the four models `approvals.*_model` invite
+ * The deliberate extension points are exempt: the five models `approvals.*_model` invite
  * a host to subclass (pinned by the preset below instead), ApprovalsException, the
  * base every approvals error extends so a host can catch them uniformly, and
  * ApprovalsManager, which ApprovalsFake extends so an injected manager gets the fake.
@@ -28,6 +29,7 @@ ArchPresets::finalByDefault('RoundlyConsulting\Approvals', [
     ApprovalRequest::class,
     ApprovalRequestStage::class,
     ApprovalDelegation::class,
+    ApprovalConfirmation::class,
     ApprovalsException::class,
     ApprovalsManager::class,
 ]);
@@ -43,6 +45,7 @@ ArchPresets::swappableModelsAreNotFinal([
     ApprovalRequest::class => 'approvals.request_model',
     ApprovalRequestStage::class => 'approvals.stage_model',
     ApprovalDelegation::class => 'approvals.delegation_model',
+    ApprovalConfirmation::class => 'approvals.confirmation_model',
 ]);
 
 /**

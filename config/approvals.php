@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use RoundlyConsulting\Approvals\Models\Approval;
+use RoundlyConsulting\Approvals\Models\ApprovalConfirmation;
 use RoundlyConsulting\Approvals\Models\ApprovalDelegation;
 use RoundlyConsulting\Approvals\Models\ApprovalRequest;
 use RoundlyConsulting\Approvals\Models\ApprovalRequestStage;
@@ -61,11 +62,24 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Approval confirmation model
+    |--------------------------------------------------------------------------
+    |
+    | The Eloquent model used to store single-use confirmations
+    | (`Approvals::confirmation()`). The replacement must extend
+    | RoundlyConsulting\Approvals\Models\ApprovalConfirmation.
+    |
+    */
+
+    'confirmation_model' => ApprovalConfirmation::class,
+
+    /*
+    |--------------------------------------------------------------------------
     | Key type
     |--------------------------------------------------------------------------
     |
     | The key type used for the polymorphic actor / approvable / approval_request
-    | / subject / decided_by / delegator / delegate columns. Use "uuid" or "ulid"
+    | / subject / decided_by / delegator / delegate / person columns. Use "uuid" or "ulid"
     | when the models an approval points at use UUID/ULID primary keys, otherwise
     | leave it as "bigint". Your morph targets must share one key type; set this to
     | match them. Any other value throws an InvalidConfigurationException when
@@ -153,6 +167,25 @@ return [
 
     'expiry' => [
         'default' => null,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Confirmations
+    |--------------------------------------------------------------------------
+    |
+    | Single-use confirmations: one named person confirms one exact action
+    | (bound to its payload hash) once. `expiry` is the lifetime, in seconds,
+    | of a confirmation asked for without ->expiresIn() / ->expiringAt(); once
+    | it passes, the confirmation reads as expired and
+    | `approvals:expire-confirmations` lapses it. Null (or blank) means such a
+    | confirmation never expires. Anything but a positive integer throws an
+    | InvalidConfigurationException.
+    |
+    */
+
+    'confirmations' => [
+        'expiry' => env('APPROVALS_CONFIRMATION_EXPIRY', 900),
     ],
 
     /*

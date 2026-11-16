@@ -15,7 +15,9 @@ use RoundlyConsulting\Approvals\Enums\ApprovalOperation;
  * (decisions: the builder's settings as given, null when unset); `subject`,
  * `staged`, `workflow` (open); `subject`, `request`, `outcome` (close); `subject`,
  * `request`, `stage`, `approvers` (replace); `delegator`,
- * `delegate`, `starts_at`, `ends_at` (delegate / revoke); `now`, `subjectType` (expire).
+ * `delegate`, `starts_at`, `ends_at` (delegate / revoke); `now`, `subjectType` (expire,
+ * expire confirmations); `subject`, `person`, `expires_at` (request confirmation);
+ * `confirmation`, `person`, `reason` (confirm, decline).
  */
 final readonly class RecordedApprovalOperation
 {

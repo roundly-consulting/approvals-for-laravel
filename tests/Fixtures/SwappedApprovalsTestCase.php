@@ -7,7 +7,7 @@ namespace RoundlyConsulting\Approvals\Tests\Fixtures;
 use RoundlyConsulting\Approvals\Tests\TestCase;
 
 /**
- * The suite's base case with all four `approvals.*_model` seams already pointed at the
+ * The suite's base case with all five `approvals.*_model` seams already pointed at the
  * host subclasses BEFORE the providers boot.
  *
  * Boot order is the whole point: the provider hangs its wiring on whatever the config
@@ -16,7 +16,7 @@ use RoundlyConsulting\Approvals\Tests\TestCase;
  * `config()->set()` inside a test body reads back correctly while leaving every listener
  * and relation on the packaged class — the shape that let media #28 ship.
  *
- * All four are swapped together rather than one per case, because they resolve *each
+ * All five are swapped together rather than one per case, because they resolve *each
  * other*: swapping only `request_model` would leave the request's own `stages()` and
  * `decisions()` relations pointing at packaged classes, and a per-seam base case would
  * prove less while costing four boots.
@@ -37,6 +37,7 @@ abstract class SwappedApprovalsTestCase extends TestCase
             'approvals.request_model' => CustomApprovalRequest::class,
             'approvals.stage_model' => CustomApprovalRequestStage::class,
             'approvals.delegation_model' => CustomApprovalDelegation::class,
+            'approvals.confirmation_model' => CustomApprovalConfirmation::class,
         ]);
     }
 }

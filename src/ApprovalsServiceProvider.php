@@ -6,13 +6,16 @@ namespace RoundlyConsulting\Approvals;
 
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Approvals\Commands\ExpireApprovalsCommand;
+use RoundlyConsulting\Approvals\Commands\ExpireConfirmationsCommand;
 use RoundlyConsulting\Approvals\Facades\Approvals;
 use RoundlyConsulting\Approvals\Support\ApprovalChecker;
+use RoundlyConsulting\Approvals\Support\ApprovalConfirmationModelResolver;
 use RoundlyConsulting\Approvals\Support\ApprovalDelegationModelResolver;
 use RoundlyConsulting\Approvals\Support\ApprovalLifetime;
 use RoundlyConsulting\Approvals\Support\ApprovalModelResolver;
 use RoundlyConsulting\Approvals\Support\ApprovalRequestModelResolver;
 use RoundlyConsulting\Approvals\Support\ApprovalRequestStageModelResolver;
+use RoundlyConsulting\Approvals\Support\ConfirmationLifetime;
 use RoundlyConsulting\Approvals\Support\WorkflowResolver;
 use RoundlyConsulting\PackageToolkit\Concerns\RegistersBladeDirectives;
 use RoundlyConsulting\PackageToolkit\Concerns\RegistersBlueprintMacros;
@@ -32,8 +35,10 @@ final class ApprovalsServiceProvider extends PackageServiceProvider
             ->name('approvals')
             ->hasConfigFile()
             ->hasMigrations()
+            ->hasTranslations()
             ->hasCommands([
                 ExpireApprovalsCommand::class,
+                ExpireConfirmationsCommand::class,
             ])
             ->hasFacadeAlias(Approvals::class)
             ->contributesToAbout(static fn (): array => [
@@ -41,12 +46,14 @@ final class ApprovalsServiceProvider extends PackageServiceProvider
                 'Request model' => class_basename(ApprovalRequestModelResolver::class()),
                 'Stage model' => class_basename(ApprovalRequestStageModelResolver::class()),
                 'Delegation model' => class_basename(ApprovalDelegationModelResolver::class()),
+                'Confirmation model' => class_basename(ApprovalConfirmationModelResolver::class()),
                 'Authorization' => Config::boolean('approvals.authorization.enabled') ? 'ENFORCED' : 'OFF',
                 // The gate ability is part of the host's own authorization
                 // vocabulary, so the section reports whether one was configured —
                 // never the ability's name.
                 'Ability' => self::abilityPresence(),
                 'Default expiry' => self::defaultExpiry(),
+                'Confirmation expiry' => self::confirmationExpiry(),
                 // A workflow name is a host business process ("payout", "layoff"),
                 // so the presets are reported by count, never by name.
                 'Workflow presets' => self::workflowCount(),
@@ -91,6 +98,17 @@ final class ApprovalsServiceProvider extends PackageServiceProvider
     {
         try {
             $expiry = ApprovalLifetime::seconds();
+        } catch (InvalidConfigurationException) {
+            return 'INVALID';
+        }
+
+        return $expiry === null ? 'NEVER' : $expiry.'s';
+    }
+
+    private static function confirmationExpiry(): string
+    {
+        try {
+            $expiry = ConfirmationLifetime::seconds();
         } catch (InvalidConfigurationException) {
             return 'INVALID';
         }

@@ -11,6 +11,7 @@ use RoundlyConsulting\Approvals\ApprovalsManager;
 use RoundlyConsulting\Approvals\DataTransferObjects\ThresholdVerdict;
 use RoundlyConsulting\Approvals\Enums\ApprovalOperation;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
+use RoundlyConsulting\Approvals\Models\ApprovalConfirmation;
 use RoundlyConsulting\Approvals\Support\MorphType;
 
 /**
@@ -301,6 +302,101 @@ final class ApprovalsFake extends ApprovalsManager
     public function assertNothingRechecked(): void
     {
         $this->assertNone(ApprovalOperation::Recheck, 'Expected no approval threshold to be re-checked, but %d re-check(s) were recorded.');
+    }
+
+    /**
+     * Assert a confirmation about the subject was asked for — of `$person` when given.
+     */
+    public function assertConfirmationRequested(Model $subject, ?Model $person = null): void
+    {
+        Assert::assertNotEmpty(
+            $this->matching(ApprovalOperation::RequestConfirmation, 'subject', $subject, 'person', $person),
+            $person === null
+                ? 'Expected a confirmation about the subject to be requested, but none was.'
+                : 'Expected a confirmation about the subject to be requested of the given person, but none was.',
+        );
+    }
+
+    public function assertNoConfirmationsRequested(): void
+    {
+        $this->assertNone(ApprovalOperation::RequestConfirmation, 'Expected no confirmation to be requested, but %d were recorded.');
+    }
+
+    /**
+     * Assert a confirmation about the subject was confirmed — by `$by` when given. A
+     * refused confirm is not recorded.
+     */
+    public function assertConfirmed(Model $subject, ?Model $by = null): void
+    {
+        Assert::assertNotEmpty(
+            $this->answers(ApprovalOperation::Confirm, $subject, $by),
+            $by === null
+                ? 'Expected a confirmation about the subject to be confirmed, but none was.'
+                : 'Expected a confirmation about the subject to be confirmed by the given person, but none was.',
+        );
+    }
+
+    public function assertNothingConfirmed(): void
+    {
+        $this->assertNone(ApprovalOperation::Confirm, 'Expected nothing to be confirmed, but %d confirmation(s) were recorded.');
+    }
+
+    /**
+     * Assert a confirmation about the subject was declined — by `$by` when given.
+     */
+    public function assertDeclined(Model $subject, ?Model $by = null): void
+    {
+        Assert::assertNotEmpty(
+            $this->answers(ApprovalOperation::Decline, $subject, $by),
+            $by === null
+                ? 'Expected a confirmation about the subject to be declined, but none was.'
+                : 'Expected a confirmation about the subject to be declined by the given person, but none was.',
+        );
+    }
+
+    public function assertNothingDeclined(): void
+    {
+        $this->assertNone(ApprovalOperation::Decline, 'Expected nothing to be declined, but %d decline(s) were recorded.');
+    }
+
+    /**
+     * Assert a confirmation sweep ran — and, when `$count` is given, that the sweeps lapsed
+     * exactly that many confirmations in total.
+     */
+    public function assertConfirmationsExpired(?int $count = null): void
+    {
+        $sweeps = $this->recorded(ApprovalOperation::ExpireConfirmations);
+
+        Assert::assertNotEmpty($sweeps, 'Expected a confirmation expiry sweep to run, but none did.');
+
+        if ($count !== null) {
+            Assert::assertSame($count, $this->lapsed($sweeps), "Expected {$count} confirmation(s) to be expired.");
+        }
+    }
+
+    /**
+     * Assert no confirmation was lapsed by a sweep.
+     */
+    public function assertNoConfirmationsExpired(): void
+    {
+        $lapsed = $this->lapsed($this->recorded(ApprovalOperation::ExpireConfirmations));
+
+        Assert::assertSame(0, $lapsed, "Expected no confirmation to be expired, but {$lapsed} were.");
+    }
+
+    /**
+     * The recorded confirms or declines of a confirmation about the subject, by `$by` when given.
+     *
+     * @return list<RecordedApprovalOperation>
+     */
+    private function answers(ApprovalOperation $operation, Model $subject, ?Model $by): array
+    {
+        return array_values(array_filter(
+            $this->recorded($operation),
+            static fn (RecordedApprovalOperation $recorded): bool => ($confirmation = $recorded->context['confirmation'] ?? null) instanceof ApprovalConfirmation
+                && $confirmation->isFor($subject)
+                && ($by === null || $recorded->involves('person', $by)),
+        ));
     }
 
     private function assertDecision(ApprovalOperation $operation, string $verb, Model $approvable, ?Model $actor): void

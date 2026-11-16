@@ -7,13 +7,16 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use RoundlyConsulting\Approvals\Enums\ApprovalRule;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
+use RoundlyConsulting\Approvals\Enums\ConfirmationStatus;
+use RoundlyConsulting\Approvals\Exceptions\ConfirmationRefusedException;
+use RoundlyConsulting\Approvals\Facades\Approvals;
 use RoundlyConsulting\Approvals\Tests\Fixtures\StringKeyedReleaseTestModel;
 use RoundlyConsulting\Approvals\Tests\Fixtures\StringKeyedReviewerTestModel;
 use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 use RoundlyConsulting\Testing\Database\DriverMatrix;
 
 /**
- * The seven outbound morph columns follow `approvals.key_type` (default `bigint`) through
+ * The outbound morph columns follow `approvals.key_type` (default `bigint`) through
  * the toolkit's `morphKey` macro. Two things must hold and are proven here:
  *
  *  - the default (`bigint`) emitted schema is BYTE-IDENTICAL to the pre-macro `morphs()`
@@ -42,6 +45,7 @@ function runApprovalsMigrations(bool $upgrade = true): void
     }
 
     $migrations[] = '0008_add_decision_guards_to_approvals_tables';
+    $migrations[] = '0009_create_approval_confirmations_table';
 
     foreach ($migrations as $migration) {
         (require __DIR__.'/../../database/migrations/'.$migration.'.php')->up();
@@ -54,7 +58,7 @@ function runApprovalsMigrations(bool $upgrade = true): void
  */
 function dropApprovalsTables(): void
 {
-    foreach (['approval_request_stages', 'approval_delegations', 'approval_requests', 'approvals'] as $table) {
+    foreach (['approval_confirmations', 'approval_request_stages', 'approval_delegations', 'approval_requests', 'approvals'] as $table) {
         Schema::dropIfExists($table);
     }
 }
@@ -145,6 +149,15 @@ it('emits the frozen bigint morph schema byte-for-byte', function (): void {
         .'"starts_at" datetime, "ends_at" datetime, "revoked_at" datetime, '
         .'"created_at" datetime, "updated_at" datetime, "deleted_at" datetime)'
     );
+
+    expect(emittedApprovalsTable('approval_confirmations'))->toBe(
+        'CREATE TABLE "approval_confirmations" ("id" integer primary key autoincrement not null, '
+        .'"subject_type" varchar not null, "subject_id" integer not null, '
+        .'"person_type" varchar not null, "person_id" integer not null, '
+        .'"payload_hash" varchar not null, "status" varchar not null default \'pending\', '
+        .'"reason" text, "expires_at" datetime, "resolved_at" datetime, '
+        .'"created_at" datetime, "updated_at" datetime)'
+    );
 })->skip($sqliteOnly, 'sqlite_master is the sqlite catalog');
 
 it('renders each configured key type as a distinct real morph column type', function (string $keyType, string $expected, string $requestId): void {
@@ -161,6 +174,9 @@ it('renders each configured key type as a distinct real morph column type', func
         ->and(pgsqlApprovalsColumnType('approval_requests', 'subject_id'))->toBe($expected)
         ->and(pgsqlApprovalsColumnType('approval_delegations', 'delegator_id'))->toBe($expected)
         ->and(pgsqlApprovalsColumnType('approval_delegations', 'delegate_id'))->toBe($expected)
+        ->and(pgsqlApprovalsColumnType('approval_confirmations', 'subject_id'))->toBe($expected)
+        ->and(pgsqlApprovalsColumnType('approval_confirmations', 'person_id'))->toBe($expected)
+        ->and(pgsqlApprovalsColumnType('approval_confirmations', 'id'))->toBe('bigint')
         // The morph *type* column names a class — a string on every key type.
         ->and(pgsqlApprovalsColumnType('approvals', 'actor_type'))->toBe('character varying(255)')
         // A decision's request is the package's own bigint `approval_requests` row. 0007
@@ -206,6 +222,28 @@ it('records a decision on a request on a string-keyed host', function (string $k
     expect(trim((string) $approval->fresh()?->approval_request_id))->toBe((string) $request->getKey())
         ->and($request->fresh()?->status)->toBe(ApprovalStatus::Approved)
         ->and($request->decisions()->count())->toBe(1);
+})->with(['uuid', 'ulid']);
+
+it('asks for, confirms and lists a confirmation on a string-keyed host', function (string $keyType): void {
+    config()->set('approvals.key_type', $keyType);
+
+    dropApprovalsTables();
+    runApprovalsMigrations();
+    createStringKeyedFixtureTables();
+
+    $release = StringKeyedReleaseTestModel::query()->create();
+    $person = StringKeyedReviewerTestModel::query()->create();
+    $stranger = StringKeyedReviewerTestModel::query()->create();
+
+    $confirmation = Approvals::confirmation($release)->payload('tool-hash')->by($person)->request();
+
+    expect(Approvals::pendingConfirmationsFor($person)->pluck('id')->all())->toBe([$confirmation->getKey()])
+        ->and(Approvals::pendingConfirmationsFor($stranger)->count())->toBe(0)
+        ->and(Approvals::confirmationsFor($release)->count())->toBe(1)
+        ->and(fn () => Approvals::confirm($confirmation, $stranger, 'tool-hash'))
+        ->toThrow(ConfirmationRefusedException::class)
+        ->and(Approvals::confirm($confirmation, $person, 'tool-hash')->status)->toBe(ConfirmationStatus::Confirmed)
+        ->and((string) $confirmation->fresh()?->person_id)->toBe((string) $person->getKey());
 })->with(['uuid', 'ulid']);
 
 it('turns a uuid approval_request_id from 1.0.0 into a bigint', function (): void {
