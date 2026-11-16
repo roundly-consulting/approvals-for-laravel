@@ -4,6 +4,38 @@ All notable changes to `approvals-for-laravel` are documented in this file. The 
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## 2.3.0 - 2026-11-16
+
+**Upgrade note:** single-use confirmations need the new migration `0009_create_approval_confirmations_table`
+(`php artisan vendor:publish --tag="approvals-migrations"` then `php artisan migrate`). It creates one table and
+changes no existing one. Until it runs, everything else works as before, `approvals:expire` included.
+
+### Added
+
+- Single-use confirmations: one named person confirms one exact action, bound to its payload hash, once, before
+  it expires. `Approvals::confirmation($subject)->payload($hash)->by($person)->expiresIn($interval)->request()`
+  asks for one (`singleUse()` is accepted as a marker: every confirmation is single use).
+  `Approvals::confirm($confirmation, $person, $hash)` succeeds only for the named person and the matching hash
+  (compared with `hash_equals`) while it is pending and unexpired, and uses it up with one conditional update,
+  so of two concurrent confirms exactly one succeeds. `Approvals::decline($confirmation, $person, ?$reason)`
+  declines it the same way.
+- `ConfirmationRefusedException` with a typed `ConfirmationRefusal` and `errorCode()`: `mismatch`, `used`,
+  `expired`, `not_the_person` and `declined`, each with an English and a Slovak message
+  (`approvals::confirmations.refused.*`, publishable with `--tag=approvals-translations`).
+  `InvalidConfirmationException` for a confirmation that cannot be asked for.
+- `ApprovalConfirmationRequested`, `ApprovalConfirmationConfirmed`, `ApprovalConfirmationDeclined` and
+  `ApprovalConfirmationExpired` events.
+- `Approvals::pendingConfirmationsFor($person)` and `Approvals::confirmationsFor($subject)` (plus the
+  `pending()`, `pendingFor()`, `forSubject()` and `overdue()` scopes on `ApprovalConfirmation`). A confirmation
+  past its expiry reads as expired at once; `Approvals::expireConfirmations()` and
+  `approvals:expire-confirmations` lapse such confirmations and fire `ApprovalConfirmationExpired`.
+- `approvals.confirmation_model` (swappable `ApprovalConfirmation`, with a factory) and
+  `approvals.confirmations.expiry` (default 900 seconds, `APPROVALS_CONFIRMATION_EXPIRY`; null never expires).
+- `Approvals::fake()`: `assertConfirmationRequested()` / `assertNoConfirmationsRequested()`,
+  `assertConfirmed()` / `assertNothingConfirmed()`, `assertDeclined()` / `assertNothingDeclined()`,
+  `assertConfirmationsExpired()` / `assertNoConfirmationsExpired()`, and the `ApprovalOperation` cases
+  `RequestConfirmation`, `Confirm`, `Decline` and `ExpireConfirmations`.
+
 ## 2.2.0 - 2026-11-09
 
 **Upgrade note:** the new guards need the new migration `0008_add_decision_guards_to_approvals_tables`
