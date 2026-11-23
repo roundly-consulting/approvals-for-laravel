@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Approvals\Exceptions;
 
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Model;
 
 final class InvalidDelegationException extends ApprovalsException
 {
@@ -28,6 +29,16 @@ final class InvalidDelegationException extends ApprovalsException
     {
         return new self(
             "A delegation cannot end at [{$endsAt->toIso8601String()}] before it starts at [{$startsAt->toIso8601String()}]."
+        );
+    }
+
+    /**
+     * A delegation was limited to a scope that is not saved, so it has no key to store.
+     */
+    public static function unsavedScope(Model $scope): self
+    {
+        return new self(
+            'A delegation cannot be limited to an unsaved ['.$scope::class.'] scope: save it first.'
         );
     }
 }

@@ -120,11 +120,12 @@ class ApprovalsManager
 
     /**
      * The delegation under which the given model acts as a delegate at the moment
-     * (now when omitted), if one is in force.
+     * (now when omitted), if one is in force; given `$scope`, only one that counts within
+     * it (unscoped, or limited to exactly that scope).
      */
-    public function delegationFor(Model $delegate, ?CarbonInterface $at = null): ?ApprovalDelegation
+    public function delegationFor(Model $delegate, ?CarbonInterface $at = null, ?Model $scope = null): ?ApprovalDelegation
     {
-        return $this->container->make(DelegationResolver::class)->activeDelegationFor($delegate, $at);
+        return $this->container->make(DelegationResolver::class)->activeDelegationFor($delegate, $at, $scope);
     }
 
     /**

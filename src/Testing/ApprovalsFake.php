@@ -12,6 +12,7 @@ use RoundlyConsulting\Approvals\DataTransferObjects\ThresholdVerdict;
 use RoundlyConsulting\Approvals\Enums\ApprovalOperation;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
 use RoundlyConsulting\Approvals\Models\ApprovalConfirmation;
+use RoundlyConsulting\Approvals\Models\ApprovalRequest;
 use RoundlyConsulting\Approvals\Support\MorphType;
 
 /**
@@ -134,6 +135,33 @@ final class ApprovalsFake extends ApprovalsManager
         );
     }
 
+    /**
+     * Assert a round opened, optionally one `$callback` accepts. The callback receives the
+     * opened round (`ApprovalRequest`) and the recorded operation.
+     *
+     * @param  (Closure(ApprovalRequest, RecordedApprovalOperation): bool)|null  $callback
+     */
+    public function assertRoundOpened(?Closure $callback = null): void
+    {
+        $matches = array_filter(
+            $this->recorded(ApprovalOperation::Open),
+            static fn (RecordedApprovalOperation $recorded): bool => $recorded->result instanceof ApprovalRequest
+                && ($callback === null || $callback($recorded->result, $recorded) === true),
+        );
+
+        Assert::assertNotEmpty(
+            $matches,
+            $callback === null
+                ? 'Expected an approval round to be opened, but none was.'
+                : 'Expected an approval round matching the callback to be opened, but none was.',
+        );
+    }
+
+    public function assertNoRoundsOpened(): void
+    {
+        $this->assertNone(ApprovalOperation::Open, 'Expected no approval round to be opened, but %d were recorded.');
+    }
+
     public function assertNothingOpened(): void
     {
         $this->assertNone(ApprovalOperation::Open, 'Expected no approval request to be opened, but %d were recorded.');
@@ -144,6 +172,22 @@ final class ApprovalsFake extends ApprovalsManager
         Assert::assertNotEmpty(
             $this->matching(ApprovalOperation::Delegate, 'delegator', $delegator, 'delegate', $to),
             'Expected approval authority to be delegated, but no matching delegation was recorded.',
+        );
+    }
+
+    /**
+     * Assert the delegator handed its authority over limited to `$scope`, optionally to `$to`.
+     */
+    public function assertDelegatedWithin(Model $delegator, Model $scope, ?Model $to = null): void
+    {
+        $matches = array_filter(
+            $this->matching(ApprovalOperation::Delegate, 'delegator', $delegator, 'delegate', $to),
+            static fn (RecordedApprovalOperation $recorded): bool => $recorded->involves('scope', $scope),
+        );
+
+        Assert::assertNotEmpty(
+            $matches,
+            'Expected approval authority to be delegated within the scope, but no matching delegation was recorded.',
         );
     }
 

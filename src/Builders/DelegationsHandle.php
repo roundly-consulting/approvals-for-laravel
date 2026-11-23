@@ -49,12 +49,13 @@ final readonly class DelegationsHandle
     }
 
     /**
-     * The approver's delegations in force at the moment (now when omitted), newest first.
+     * The approver's delegations in force at the moment (now when omitted), newest first;
+     * given `$scope`, only those that count within it (unscoped, or limited to it).
      *
      * @return Collection<int, ApprovalDelegation>
      */
-    public function active(?CarbonInterface $at = null): Collection
+    public function active(?CarbonInterface $at = null, ?Model $scope = null): Collection
     {
-        return app(DelegationResolver::class)->activeDelegationsFrom($this->delegator, $at);
+        return app(DelegationResolver::class)->activeDelegationsFrom($this->delegator, $at, $scope);
     }
 }

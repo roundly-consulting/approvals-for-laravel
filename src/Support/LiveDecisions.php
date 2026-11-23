@@ -53,7 +53,8 @@ final class LiveDecisions
     }
 
     /**
-     * The latest decision `$delegate` made for a delegator that still delegates to it.
+     * The latest decision `$delegate` made for a delegator that still delegates to it —
+     * within the request's scope when one is given (`approvals.delegations.scope_resolver`).
      * Once that delegation is revoked or has ended, the delegate no longer speaks for the
      * delegator — not even to undo what it decided for them.
      */
@@ -63,7 +64,7 @@ final class LiveDecisions
         ?ApprovalRequest $request,
         ?ApprovalRequestStage $stage,
     ): ?Approval {
-        $delegations = app(DelegationResolver::class)->activeDelegationsTo($delegate);
+        $delegations = app(DelegationResolver::class)->activeDelegationsToInRound($delegate, $request);
 
         if ($delegations->isEmpty()) {
             return null;

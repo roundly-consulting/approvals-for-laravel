@@ -12,7 +12,7 @@ use RoundlyConsulting\PackageToolkit\Enums\DatabaseDriver;
 use RoundlyConsulting\Testing\Database\DriverMatrix;
 
 /**
- * Approvals ships five CREATEs and four ALTERs, and zero foreign keys — every owner is a
+ * Approvals ships five CREATEs and five ALTERs, and zero foreign keys — every owner is a
  * polymorphic `morphs()`, deliberately unconstrained because a host's approvable and
  * actor can live in any table.
  *
@@ -31,7 +31,7 @@ $migrations = __DIR__.'/../../database/migrations';
  * shorthand "M = packages with FK edges" would say otherwise. `assertRunnable()` checks
  * two independent things, and only one of them is about foreign keys: it also pins that
  * every `Schema::table()` ALTER sorts at or after the CREATE of the table it alters.
- * Approvals ships four ALTERs — and approvals #2, an ALTER that sorted before its CREATE,
+ * Approvals ships five ALTERs — and approvals #2, an ALTER that sorted before its CREATE,
  * is the *named* bug that half of the assertion was built for. So the FK count here is 0
  * and the assertion still has real work to do.
  *
@@ -46,7 +46,7 @@ it('has a runnable migration order', function () use ($migrations): void {
 /**
  * P — the publish-only guards. The fleet publishes migrations timestamped rather than
  * auto-loading them; doing both runs both copies and dies on a duplicate table (bug #5,
- * on three packages). `count: 9` pins the file count so neither check can pass over an
+ * on three packages). `count: 10` pins the file count so neither check can pass over an
  * empty or relocated directory.
  */
 it('never auto-loads its migrations — the host publishes them', function (): void {
@@ -54,12 +54,12 @@ it('never auto-loads its migrations — the host publishes them', function (): v
 });
 
 it('publishes every migration timestamp-injected into the host', function (): void {
-    expect(ApprovalsServiceProvider::class)->toPublishMigrationsTimestamped('approvals-migrations', 9);
+    expect(ApprovalsServiceProvider::class)->toPublishMigrationsTimestamped('approvals-migrations', 10);
 });
 
 /**
  * R — the real-engine proof. Approvals' DDL had never met a real engine before this row.
- * `migrations: 9` pins the count, and the expectation additionally fails a set that
+ * `migrations: 10` pins the count, and the expectation additionally fails a set that
  * "applies cleanly" while creating no tables — an empty `up()` otherwise passes and
  * proves nothing.
  *
@@ -70,7 +70,7 @@ it('publishes every migration timestamp-injected into the host', function (): vo
  * would have caught is covered structurally by the pin above, on every driver.
  */
 it('applies its migrations on postgres', function () use ($migrations): void {
-    expect($migrations)->toApplyOnConnection('pgsql', migrations: 9);
+    expect($migrations)->toApplyOnConnection('pgsql', migrations: 10);
 })->skip(fn (): bool => ! test()->connectionAvailable('pgsql'), 'no postgres connection available');
 
 /**
@@ -80,7 +80,7 @@ it('applies its migrations on postgres', function () use ($migrations): void {
  * SQLSTATE 1071 on the first migration.
  */
 it('applies its migrations on mysql', function () use ($migrations): void {
-    expect($migrations)->toApplyOnConnection('mysql', migrations: 9);
+    expect($migrations)->toApplyOnConnection('mysql', migrations: 10);
 })->skip(fn (): bool => ! test()->connectionAvailable('mysql'), 'no mysql connection available');
 
 it('keeps the actor/approvable index to the four morph columns', function (): void {

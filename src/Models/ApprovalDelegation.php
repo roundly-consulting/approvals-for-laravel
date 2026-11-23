@@ -20,6 +20,8 @@ use RoundlyConsulting\Approvals\Exceptions\InvalidDelegationException;
  * @property string $delegator_type
  * @property int $delegate_id
  * @property string $delegate_type
+ * @property int|string|null $scope_id
+ * @property string|null $scope_type
  * @property CarbonImmutable|null $starts_at
  * @property CarbonImmutable|null $ends_at
  * @property CarbonImmutable|null $revoked_at
@@ -65,6 +67,40 @@ class ApprovalDelegation extends Model
     }
 
     /**
+     * The context the delegation is limited to (a team, a tenant); null when it counts
+     * everywhere.
+     *
+     * @return MorphTo<Model, $this>
+     */
+    public function scope(): MorphTo
+    {
+        return $this->morphTo();
+    }
+
+    /**
+     * Whether the delegation is limited to one context.
+     */
+    public function isScoped(): bool
+    {
+        return $this->getAttribute('scope_type') !== null;
+    }
+
+    /**
+     * Whether the delegation counts within `$scope`: it has no scope, or exactly that one.
+     * Within no scope (null) only an unscoped delegation counts.
+     */
+    public function countsWithin(?Model $scope): bool
+    {
+        if (! $this->isScoped()) {
+            return true;
+        }
+
+        return $scope instanceof Model
+            && $this->getAttribute('scope_type') === $scope->getMorphClass()
+            && (string) $this->getAttribute('scope_id') === (string) $scope->getKey();
+    }
+
+    /**
      * Whether the delegation is in force at the given moment (started, not ended, not revoked).
      */
     public function isActiveAt(?CarbonInterface $moment = null): bool
@@ -104,6 +140,26 @@ class ApprovalDelegation extends Model
             ->where(function (Builder $q) use ($moment): void {
                 $q->whereNull('ends_at')->orWhere('ends_at', '>=', $moment);
             });
+    }
+
+    /**
+     * Delegations that count within `$scope`: those with no scope, plus those limited to
+     * exactly `$scope`. Within no scope (null) only the unscoped ones count.
+     *
+     * @param  Builder<ApprovalDelegation>  $query
+     */
+    public function scopeWithin(Builder $query, ?Model $scope): void
+    {
+        $query->where(static function (Builder $q) use ($scope): void {
+            $q->whereNull('scope_type');
+
+            if ($scope instanceof Model) {
+                $q->orWhere(static function (Builder $exact) use ($scope): void {
+                    $exact->where('scope_type', $scope->getMorphClass())
+                        ->where('scope_id', $scope->getKey());
+                });
+            }
+        });
     }
 
     /**

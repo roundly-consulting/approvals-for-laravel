@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Approvals\Facades;
 
 use Carbon\CarbonInterface;
+use Closure;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Facade;
@@ -33,7 +34,7 @@ use RoundlyConsulting\Approvals\Testing\RecordedApprovalOperation;
  * @method static ApprovalProgress|null progress(Model $subject)
  * @method static ApprovalRequestStage|null currentStage(Model $subject)
  * @method static DelegationsHandle delegations(Model $delegator)
- * @method static ApprovalDelegation|null delegationFor(Model $delegate, ?CarbonInterface $at = null)
+ * @method static ApprovalDelegation|null delegationFor(Model $delegate, ?CarbonInterface $at = null, ?Model $scope = null)
  * @method static int expire(?CarbonInterface $now = null, ?string $subjectType = null)
  * @method static PendingConfirmation confirmation(Model $subject)
  * @method static ApprovalConfirmation confirm(ApprovalConfirmation $confirmation, Model $person, string $hash)
@@ -55,7 +56,10 @@ use RoundlyConsulting\Approvals\Testing\RecordedApprovalOperation;
  * @method static void assertNothingToggled()
  * @method static void assertOpened(Model $subject, ?string $workflow = null)
  * @method static void assertNothingOpened()
+ * @method static void assertRoundOpened(?Closure $callback = null)
+ * @method static void assertNoRoundsOpened()
  * @method static void assertDelegated(Model $delegator, ?Model $to = null)
+ * @method static void assertDelegatedWithin(Model $delegator, Model $scope, ?Model $to = null)
  * @method static void assertNothingDelegated()
  * @method static void assertRevoked(Model $delegator, ?Model $delegate = null)
  * @method static void assertNothingRevoked()

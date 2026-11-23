@@ -76,7 +76,7 @@ trait ResolvesApproval
 
         if (! $request instanceof ApprovalRequest || $named === []) {
             $decidedBy = null;
-            $effectiveActor = $actsForOthers ? $this->effectiveActor($actor, $decidedBy) : $actor;
+            $effectiveActor = $actsForOthers ? $this->effectiveActor($actor, $decidedBy, $request) : $actor;
 
             if ($decidedBy instanceof Model && NamedApprover::listIncludes($excluded, $effectiveActor)) {
                 throw UnauthorizedApprovalException::excludedPrincipal($actor, $effectiveActor);
@@ -92,7 +92,7 @@ trait ResolvesApproval
         if ($actsForOthers) {
             $excludedPrincipal = null;
 
-            foreach (app(DelegationResolver::class)->activeDelegationsTo($actor) as $delegation) {
+            foreach (app(DelegationResolver::class)->activeDelegationsToInRound($actor, $request) as $delegation) {
                 $delegator = $delegation->delegator;
 
                 if (! $delegator instanceof Model || ! NamedApprover::listIncludes($named, $delegator)) {
@@ -485,15 +485,16 @@ trait ResolvesApproval
     }
 
     /**
-     * Resolve the effective approver for a decision, honouring active delegations.
+     * Resolve the effective approver for a decision, honouring active delegations — on a
+     * round, only those that count in its scope (`approvals.delegations.scope_resolver`).
      *
      * Returns the model whose authority the decision counts as. When a delegation is
      * in force, the original delegate is returned via $decidedBy so the action can
      * record who physically decided.
      */
-    protected function effectiveActor(Model $actor, ?Model &$decidedBy): Model
+    protected function effectiveActor(Model $actor, ?Model &$decidedBy, ?ApprovalRequest $request = null): Model
     {
-        $delegation = app(DelegationResolver::class)->activeDelegationFor($actor);
+        $delegation = app(DelegationResolver::class)->activeDelegationForRound($actor, $request);
 
         if ($delegation === null) {
             return $actor;

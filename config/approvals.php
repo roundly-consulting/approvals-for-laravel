@@ -135,6 +135,27 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Delegation scope
+    |--------------------------------------------------------------------------
+    |
+    | A delegation can be limited to one context (a team, a tenant) with
+    | `Approvals::delegations($boss)->to($deputy)->within($team)->grant()`.
+    | `scope_resolver` names a class implementing RoundlyConsulting\Approvals\
+    | Interfaces\ResolvesDelegationScope that says which context a round
+    | belongs to; it is resolved from the container. A round then counts the
+    | delegations with no scope plus those limited to its context (only the
+    | unscoped ones when the resolver returns null). Null (or blank) is no
+    | resolver: every delegation counts in every round. Anything that does not
+    | name an implementation throws an InvalidConfigurationException.
+    |
+    */
+
+    'delegations' => [
+        'scope_resolver' => null,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Subject fingerprint
     |--------------------------------------------------------------------------
     |

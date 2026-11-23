@@ -29,8 +29,9 @@ use RoundlyConsulting\Approvals\Support\ExcludedApprovers;
  *
  * An outstanding named approver can still decide when its model still exists, it is not
  * excluded, and (while the decision gate is on) it passes the gate or holds a delegation
- * in force to a delegate who does. Decisions already in keep counting. A round, or a
- * stage, that names no approvers lets anyone decide, so it always reads as reachable.
+ * in force to a delegate who does (one that counts in the round's delegation scope).
+ * Decisions already in keep counting. A round, or a stage, that names no approvers lets
+ * anyone decide, so it always reads as reachable.
  *
  * A flat round is reachable when its rule can still approve it. A staged round is
  * reachable when every stage still to settle can still clear — or, on a round that
@@ -136,6 +137,7 @@ final class RecheckApprovalThresholdAction
                 $subject,
                 $excluded,
                 $unavailable,
+                $round,
             );
 
             return new ThresholdVerdict($round, $reachable, $unavailable);
@@ -164,6 +166,7 @@ final class RecheckApprovalThresholdAction
                 $subject,
                 $excluded,
                 $unavailable,
+                $round,
             );
 
             $anyReachable = $anyReachable || $reachable;
@@ -196,6 +199,7 @@ final class RecheckApprovalThresholdAction
         Model $subject,
         array $excluded,
         array &$unavailable,
+        ApprovalRequest $round,
     ): bool {
         // Without names anyone may decide: nothing says the threshold is out of reach.
         if ($named === []) {
@@ -217,7 +221,7 @@ final class RecheckApprovalThresholdAction
                 continue;
             }
 
-            if ($this->availability->canDecide($approver, $subject, $excluded)) {
+            if ($this->availability->canDecide($approver, $subject, $excluded, $round)) {
                 $available[] = $approver;
             } else {
                 $unavailable[] = $approver;

@@ -46,6 +46,7 @@ function runApprovalsMigrations(bool $upgrade = true): void
 
     $migrations[] = '0008_add_decision_guards_to_approvals_tables';
     $migrations[] = '0009_create_approval_confirmations_table';
+    $migrations[] = '0010_add_scope_to_approval_delegations_table';
 
     foreach ($migrations as $migration) {
         (require __DIR__.'/../../database/migrations/'.$migration.'.php')->up();
@@ -147,7 +148,8 @@ it('emits the frozen bigint morph schema byte-for-byte', function (): void {
         .'"delegator_type" varchar not null, "delegator_id" integer not null, '
         .'"delegate_type" varchar not null, "delegate_id" integer not null, '
         .'"starts_at" datetime, "ends_at" datetime, "revoked_at" datetime, '
-        .'"created_at" datetime, "updated_at" datetime, "deleted_at" datetime)'
+        .'"created_at" datetime, "updated_at" datetime, "deleted_at" datetime, '
+        .'"scope_type" varchar, "scope_id" integer)'
     );
 
     expect(emittedApprovalsTable('approval_confirmations'))->toBe(
@@ -173,6 +175,7 @@ it('renders each configured key type as a distinct real morph column type', func
         ->and(pgsqlApprovalsColumnType('approvals', 'decided_by_id'))->toBe($expected)
         ->and(pgsqlApprovalsColumnType('approval_requests', 'subject_id'))->toBe($expected)
         ->and(pgsqlApprovalsColumnType('approval_delegations', 'delegator_id'))->toBe($expected)
+        ->and(pgsqlApprovalsColumnType('approval_delegations', 'scope_id'))->toBe($expected)
         ->and(pgsqlApprovalsColumnType('approval_delegations', 'delegate_id'))->toBe($expected)
         ->and(pgsqlApprovalsColumnType('approval_confirmations', 'subject_id'))->toBe($expected)
         ->and(pgsqlApprovalsColumnType('approval_confirmations', 'person_id'))->toBe($expected)

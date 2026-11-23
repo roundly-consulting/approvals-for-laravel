@@ -7,11 +7,13 @@ namespace RoundlyConsulting\Approvals\Support;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use RoundlyConsulting\Approvals\DataTransferObjects\NamedApprover;
+use RoundlyConsulting\Approvals\Models\ApprovalRequest;
 
 /**
  * Whether a named approver can still decide: its model still exists (a soft-deleted one
  * does not), it is not excluded, and — while the decision gate is on — it passes the
- * gate, or holds a delegation in force to a delegate who can decide for it.
+ * gate, or holds a delegation in force to a delegate who can decide for it — on a round,
+ * only a delegation that counts in the round's scope (`approvals.delegations.scope_resolver`).
  *
  * @internal
  */
@@ -24,7 +26,7 @@ final readonly class ApproverAvailability
     /**
      * @param  list<NamedApprover>  $excluded
      */
-    public function canDecide(NamedApprover $approver, Model $subject, array $excluded): bool
+    public function canDecide(NamedApprover $approver, Model $subject, array $excluded, ?ApprovalRequest $round = null): bool
     {
         $model = $this->load($approver);
 
@@ -36,7 +38,7 @@ final readonly class ApproverAvailability
             return true;
         }
 
-        foreach ($this->delegations->activeDelegationsFrom($model) as $delegation) {
+        foreach ($this->delegations->activeDelegationsFromInRound($model, $round) as $delegation) {
             $delegate = $delegation->delegate;
 
             if ($delegate instanceof Model && ! $this->isExcluded($delegate, $excluded) && DecisionGate::allows($delegate, $subject)) {

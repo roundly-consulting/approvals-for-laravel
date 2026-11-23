@@ -98,13 +98,15 @@ trait GivesApprovals
     }
 
     /**
-     * Hand this approver's authority to another model, optionally within a window.
+     * Hand this approver's authority to another model, optionally within a window and
+     * limited to one context (`$scope`: a team, a tenant; null counts everywhere).
      * For the fluent form use `Approvals::delegations($this)->to($delegate)->…->grant()`.
      */
     public function delegateApprovalsTo(
         Model $delegate,
         ?CarbonInterface $from = null,
         ?CarbonInterface $until = null,
+        ?Model $scope = null,
     ): ApprovalDelegation {
         $pending = app(ApprovalsManager::class)->delegations($this)->to($delegate);
 
@@ -114,6 +116,10 @@ trait GivesApprovals
 
         if ($until !== null) {
             $pending->until($until);
+        }
+
+        if ($scope instanceof Model) {
+            $pending->within($scope);
         }
 
         return $pending->grant();

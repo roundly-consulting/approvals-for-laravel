@@ -60,6 +60,17 @@ final class ApprovalDelegationFactory extends Factory
         ]);
     }
 
+    /**
+     * Limit the delegation to one context (a team, a tenant).
+     */
+    public function scoped(Model $scope): static
+    {
+        return $this->state(fn (): array => [
+            'scope_id' => $scope->getKey(),
+            'scope_type' => $scope->getMorphClass(),
+        ]);
+    }
+
     public function expired(): static
     {
         return $this->state(fn (): array => [

@@ -19,6 +19,7 @@ final class DelegateApprovalsAction
         Model $delegate,
         ?CarbonInterface $startsAt = null,
         ?CarbonInterface $endsAt = null,
+        ?Model $scope = null,
     ): ApprovalDelegation {
         if ($delegator->is($delegate)) {
             throw InvalidDelegationException::selfDelegation();
@@ -28,6 +29,12 @@ final class DelegateApprovalsAction
             throw InvalidDelegationException::endsBeforeStart($startsAt, $endsAt);
         }
 
+        $scopeKey = $scope?->getKey();
+
+        if ($scope instanceof Model && ! is_int($scopeKey) && ! is_string($scopeKey)) {
+            throw InvalidDelegationException::unsavedScope($scope);
+        }
+
         $model = ApprovalDelegationModelResolver::class();
 
         $delegation = new $model;
@@ -35,6 +42,13 @@ final class DelegateApprovalsAction
         $delegation->delegator_type = $delegator->getMorphClass();
         $delegation->delegate_id = $delegate->getKey();
         $delegation->delegate_type = $delegate->getMorphClass();
+        // Written only when limited, so a host that has not run the 2.4.0 migration keeps
+        // delegating until it scopes a delegation.
+        if ($scope instanceof Model) {
+            $delegation->scope_id = $scopeKey;
+            $delegation->scope_type = $scope->getMorphClass();
+        }
+
         $delegation->starts_at = $startsAt === null
             ? null
             : CarbonImmutable::instance($startsAt->toDateTimeImmutable());
