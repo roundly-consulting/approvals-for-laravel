@@ -4,6 +4,40 @@ All notable changes to `approvals-for-laravel` are documented in this file. The 
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## 2.4.0 - 2026-11-23
+
+**Upgrade note:** scoped delegations need the new migration `0010_add_scope_to_approval_delegations_table`
+(`php artisan vendor:publish --tag="approvals-migrations"` then `php artisan migrate`). It only adds a nullable
+`scope` morph (`scope_type`, `scope_id`, in the configured key type) and an index to `approval_delegations`; every
+existing delegation stays valid everywhere. Until it runs, delegations keep working: the package reads and writes
+the columns only once you scope a delegation or configure `approvals.delegations.scope_resolver`.
+
+### Added
+
+- Scoped delegations: limit a delegation to one context (a team, a tenant) with
+  `Approvals::delegations($boss)->to($deputy)->within($team)->grant()` or
+  `$boss->delegateApprovalsTo($deputy, scope: $team)`. A delegation without a scope keeps counting everywhere.
+- `approvals.delegations.scope_resolver`: a `ResolvesDelegationScope` class (`scopeOf(ApprovalRequest $round): ?Model`)
+  that places each round in a context. A round then counts the unscoped delegations plus those limited to its
+  context (only the unscoped ones when the resolver returns null), when deciding, withdrawing, and re-checking
+  the threshold; an out-of-scope delegate is refused with `UnauthorizedApprovalException`. Without a resolver
+  nothing changes.
+- `Approvals::delegationFor($delegate, ?$at, ?$scope)` and `Approvals::delegations($boss)->active(?$at, ?$scope)`
+  take an optional scope. `ApprovalDelegation` gains the `scope()` relation, `isScoped()`, `countsWithin()` and the
+  `within(?Model)` query scope; its factory a `scoped($scope)` state.
+- `ApprovalRoundOpened`, fired once per round that opens, flat or staged, from `request()` or `workflow()`, after
+  the surrounding transaction commits. It carries the round (`$round`, with `subject()`), the models asked to
+  decide now (`$approvers`: the round's, or the first stage's) and, for a staged round, the first stage
+  (`$stage`). A staged round fires it before its first `ApprovalStageOpened`. Advancing a stage and replacing
+  approvers do not fire it.
+- `Approvals::fake()`: `assertRoundOpened(?Closure)` / `assertNoRoundsOpened()`, `assertDelegatedWithin($delegator,
+  $scope, ?$to)`, and the delegation's `scope` in the recorded context.
+
+### Changed
+
+- A staged round and its stages are now written in one transaction, and the first `ApprovalStageOpened` waits
+  for the surrounding commit when one is open (outside a transaction it still fires at once).
+
 ## 2.3.0 - 2026-11-16
 
 **Upgrade note:** single-use confirmations need the new migration `0009_create_approval_confirmations_table`
