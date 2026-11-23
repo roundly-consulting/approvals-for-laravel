@@ -10,8 +10,10 @@ use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Approvals\DataTransferObjects\StageDefinition;
 use RoundlyConsulting\Approvals\Enums\ApprovalRule;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
+use RoundlyConsulting\Approvals\Events\ApprovalRoundOpened;
 use RoundlyConsulting\Approvals\Events\ApprovalStageOpened;
 use RoundlyConsulting\Approvals\Models\ApprovalRequest;
+use RoundlyConsulting\Approvals\Models\ApprovalRequestStage;
 use RoundlyConsulting\Approvals\Support\ApprovalRequestModelResolver;
 use RoundlyConsulting\Approvals\Support\ApprovalRequestStageModelResolver;
 use RoundlyConsulting\Approvals\Support\ApproverList;
@@ -28,6 +30,10 @@ final class RequestStagedApprovalAction
      * The actors in `$excluded`, and those the configured exclusion resolver names, may
      * never decide it, so naming one of them on a stage is refused. When the subject
      * provides an approval fingerprint, the round stores it.
+     *
+     * The round and its stages are written in one transaction. ApprovalRoundOpened then
+     * fires, followed by ApprovalStageOpened for the first stage — both after the
+     * surrounding transaction commits, when there is one.
      *
      * @param  list<StageDefinition>  $stages
      * @param  list<Model>  $excluded
@@ -80,35 +86,52 @@ final class RequestStagedApprovalAction
         $request->expires_at = $expiresAt === null
             ? null
             : CarbonImmutable::instance($expiresAt->toDateTimeImmutable());
-        $request->save();
 
-        $stageModel = ApprovalRequestStageModelResolver::class();
+        $first = $request->getConnection()->transaction(static function () use ($request, $stages, $named, $required): ?ApprovalRequestStage {
+            $request->save();
 
-        $position = 1;
+            $stageModel = ApprovalRequestStageModelResolver::class();
 
-        foreach ($stages as $index => $definition) {
-            $stage = new $stageModel;
-            $stage->approval_request_id = $request->getKey();
-            $stage->position = $position;
-            $stage->name = $definition->name;
-            $stage->rule = $definition->rule;
-            $stage->quorum = $definition->quorum;
-            $stage->approvers = ApproverList::payload($named[$index]);
-            $stage->required_approvers = $required[$index];
-            $stage->status = ApprovalStatus::Pending;
+            $first = null;
+            $position = 1;
 
-            // The first stage opens immediately; later stages open as earlier ones clear.
-            if ($position === 1) {
-                $stage->opened_at = CarbonImmutable::now();
+            foreach ($stages as $index => $definition) {
+                $stage = new $stageModel;
+                $stage->approval_request_id = $request->getKey();
+                $stage->position = $position;
+                $stage->name = $definition->name;
+                $stage->rule = $definition->rule;
+                $stage->quorum = $definition->quorum;
+                $stage->approvers = ApproverList::payload($named[$index]);
+                $stage->required_approvers = $required[$index];
+                $stage->status = ApprovalStatus::Pending;
+
+                // The first stage opens immediately; later stages open as earlier ones clear.
+                if ($position === 1) {
+                    $stage->opened_at = CarbonImmutable::now();
+                }
+
+                $stage->save();
+
+                $first ??= $stage;
+                $position++;
             }
 
-            $stage->save();
+            return $first;
+        });
 
-            if ($position === 1) {
-                ApprovalStageOpened::dispatch($stage);
-            }
+        $request->setRelation('subject', $subject);
 
-            $position++;
+        $opening = $stages === [] ? [] : $stages[array_key_first($stages)]->approvers;
+
+        ApprovalRoundOpened::dispatch($request, ApproverList::unique($opening), $first);
+
+        // Queued behind the round event when an outer transaction is open, so listeners
+        // always hear the round open before its first stage does.
+        if ($first instanceof ApprovalRequestStage) {
+            $request->getConnection()->afterCommit(static function () use ($first): void {
+                ApprovalStageOpened::dispatch($first);
+            });
         }
 
         return $request;

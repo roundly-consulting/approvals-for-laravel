@@ -45,6 +45,29 @@ final class ApproverList
     }
 
     /**
+     * The approver models, each once (by morph class and key), in the order given.
+     *
+     * @param  list<Model>  $approvers
+     * @return list<Model>
+     */
+    public static function unique(array $approvers): array
+    {
+        $unique = [];
+        $seen = [];
+
+        foreach ($approvers as $approver) {
+            $identity = $approver->getMorphClass()."\0".(string) json_encode($approver->getKey());
+
+            if (! isset($seen[$identity])) {
+                $seen[$identity] = true;
+                $unique[] = $approver;
+            }
+        }
+
+        return $unique;
+    }
+
+    /**
      * The identity of an actor handed in for exclusion (or by an exclusion resolver), or
      * null when it is not a saved model.
      */

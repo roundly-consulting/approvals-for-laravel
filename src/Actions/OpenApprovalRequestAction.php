@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use RoundlyConsulting\Approvals\DataTransferObjects\ApprovalRequestData;
 use RoundlyConsulting\Approvals\DataTransferObjects\NamedApprover;
 use RoundlyConsulting\Approvals\Enums\ApprovalStatus;
+use RoundlyConsulting\Approvals\Events\ApprovalRoundOpened;
 use RoundlyConsulting\Approvals\Models\ApprovalRequest;
 use RoundlyConsulting\Approvals\Support\ApprovalRequestModelResolver;
 use RoundlyConsulting\Approvals\Support\ApproverList;
@@ -23,6 +24,8 @@ use RoundlyConsulting\Approvals\Support\SubjectFingerprint;
  * The actors it excludes, and those the configured exclusion resolver names, may never
  * decide it, so naming one of them as an approver is refused. When the subject provides
  * an approval fingerprint, the round stores it, to tell later whether the subject changed.
+ *
+ * ApprovalRoundOpened fires once the round is written (after the surrounding commit).
  */
 final class OpenApprovalRequestAction
 {
@@ -51,6 +54,10 @@ final class OpenApprovalRequestAction
             ? null
             : CarbonImmutable::instance($data->expiresAt->toDateTimeImmutable());
         $request->save();
+
+        $request->setRelation('subject', $data->subject);
+
+        ApprovalRoundOpened::dispatch($request, ApproverList::unique($data->approvers));
 
         return $request;
     }
